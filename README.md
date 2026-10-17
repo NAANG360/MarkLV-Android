@@ -11,11 +11,11 @@ A native Android personal assistant inspired by the feature set of Mark-LV. This
 - Optional HTTPS fallback providers if the local router or a provider is unavailable
 - Android speech recognition and text-to-speech
 - Encrypted provider credentials using Android Keystore
-- Local conversation history and searchable long-term facts
+- Local conversation history, searchable long-term facts, and image/text-file attachments (images are sent as multimodal content and not retained as image bytes in history)
 - User-visible memory clearing
-- Android app launching, URL/deep-link opening, web/YouTube/weather search, maps, camera, WhatsApp draft and Android share sheet
+- Android app launching, URL/deep-link opening, web/YouTube/weather search, maps, camera, WhatsApp draft, clipboard read/write, contact search, dialer handoff, calendar-event form and Android share sheet
 - Optional Accessibility Service for reading visible text, tapping labelled controls, entering text in the focused field, scrolling and Back navigation
-- Device time/battery status, media volume control and shortcuts to supported Android settings pages
+- Device time/battery status, media volume control, recent notification summaries (opt-in), and shortcuts to supported Android settings pages
 - Reminders scheduled through Android alarms, saved for reboot recovery, with notification permission controls
 - Undo for the last supported media-volume change or scheduled reminder
 - GitHub Actions build that downloads the Node runtime, builds FreeLLMAPI, embeds its dashboard/server assets, compiles the APK, and uploads a debug APK artifact
@@ -37,7 +37,7 @@ Only HTTPS direct-provider URLs are accepted. The bundled local FreeLLMAPI endpo
 - The Accessibility Service is opt-in. Android and individual apps can restrict protected screens, secure UI, or controls without readable labels.
 - Voice input currently uses Android's speech-recognition intent; it is not yet the same bidirectional low-latency Gemini Live audio session used by the desktop app.
 - The animated orb is a native HUD treatment, not yet the desktop app's full 3D human head, viseme lip-sync and facial acting renderer.
-- Screen capture, webcam vision, local-file processing, proactive background monitoring, wake-word detection, full action journaling/undo, audio-device selection, and a general plugin system still need Android-native implementations.
+- Direct screen capture, webcam vision, broad document parsing, proactive background monitoring, wake-word detection, full action journaling/undo, audio-device selection, and a general plugin system still need Android-native implementations. Text/JSON and image attachments are supported, but are not a substitute for continuous screen or camera awareness.
 - Desktop-only window/taskbar controls have no direct Android equivalent; app launching and Accessibility actions are the Android replacements.
 - Android may suspend or terminate background processes. The embedded server starts again with the app process; this is not a guarantee of an always-on background daemon.
 
