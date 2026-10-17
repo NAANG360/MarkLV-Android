@@ -25,7 +25,7 @@ Provider quotas, availability, authentication, and terms still apply. Never past
 
 ## Android actions and permissions
 
-Actions run through normal Android intents and package-manager APIs. Android may show a chooser, deny an operation, or lack a matching app. This MVP does not execute shell commands, use root, or control Miss Minutes. It also does not yet provide general-purpose cross-app accessibility interaction; that is a separate implementation step requiring an explicit Accessibility permission and careful user-visible controls.
+Actions run through normal Android intents and package-manager APIs. Android may show a chooser, deny an operation, or lack a matching app. This MVP does not execute shell commands, use root, or control Miss Minutes. Optional cross-app interactions are available through a dedicated Accessibility Service for tapping visible text, entering text into the focused field, scrolling, and Back navigation. The user must explicitly enable this service in Android Settings; some apps and protected screens may still block interaction.
 
 ## Build
 
