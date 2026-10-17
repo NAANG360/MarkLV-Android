@@ -30,7 +30,7 @@ jobs:
           VERSION="24.21.0-0"
           BASE="https://github.com/fogtape/nodejs-mobile/releases/download/v${VERSION}"
           curl -fL "${BASE}/nodejs-mobile-android-${VERSION}.zip" -o /tmp/nodejs-mobile.zip
-          sha256sum /tmp/nodejs-mobile.zip
+          echo "e3cd29a1be03405f11dd5c857af8cd3ad13f84f1409ea648f5328f0bada5bd76  /tmp/nodejs-mobile.zip" | sha256sum -c -
           mkdir -p /tmp/nodejs-mobile
           unzip -q /tmp/nodejs-mobile.zip -d /tmp/nodejs-mobile
           LIB="$(find /tmp/nodejs-mobile -path '*/bin/arm64-v8a/libnode.so' -print -quit)"
