@@ -72,15 +72,15 @@ class MarkViewModel : ViewModel() {
     var fallbackProviders by mutableStateOf("")
     init {
         apiBase = prefs.getString("base", apiBase) ?: apiBase
-        apiKey = prefs.getString("key", "") ?: ""
+        apiKey = SecretStore.decrypt(prefs.getString("key_enc", null) ?: (prefs.getString("key", "") ?: ""))
         model = prefs.getString("model", "auto") ?: "auto"
-        fallbackProviders = prefs.getString("fallback_providers", "") ?: ""
+        fallbackProviders = SecretStore.decrypt(prefs.getString("fallback_providers_enc", null) ?: (prefs.getString("fallback_providers", "") ?: ""))
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
         }
     }
-    fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key", apiKey.trim()).putString("model", model.trim()).putString("fallback_providers", fallbackProviders.trim()).apply() }
+    fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key_enc", SecretStore.encrypt(apiKey.trim())).putString("model", model.trim()).putString("fallback_providers_enc", SecretStore.encrypt(fallbackProviders.trim())).remove("key").remove("fallback_providers").apply() }
     fun clear() { messages = emptyList(); persist() }
 
     fun send(text: String) {
