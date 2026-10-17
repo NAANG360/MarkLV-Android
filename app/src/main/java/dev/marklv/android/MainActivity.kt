@@ -69,16 +69,18 @@ class MarkViewModel : ViewModel() {
     var apiBase by mutableStateOf("https://your-freellmapi-host.example")
     var apiKey by mutableStateOf("")
     var model by mutableStateOf("auto")
+    var fallbackProviders by mutableStateOf("")
     init {
         apiBase = prefs.getString("base", apiBase) ?: apiBase
         apiKey = prefs.getString("key", "") ?: ""
         model = prefs.getString("model", "auto") ?: "auto"
+        fallbackProviders = prefs.getString("fallback_providers", "") ?: ""
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
         }
     }
-    fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key", apiKey.trim()).putString("model", model.trim()).apply() }
+    fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key", apiKey.trim()).putString("model", model.trim()).putString("fallback_providers", fallbackProviders.trim()).apply() }
     fun clear() { messages = emptyList(); persist() }
 
     fun send(text: String) {
@@ -145,21 +147,51 @@ class MarkViewModel : ViewModel() {
     private fun tool(name: String, description: String, parameters: JSONObject) =
         JSONObject().put("type","function").put("function",JSONObject().put("name",name).put("description",description).put("parameters",parameters))
 
+    private data class ProviderConfig(val name: String, val base: String, val model: String, val key: String)
+
+    /**
+     * Mobile-native OpenAI-compatible router. The first endpoint is the configured
+     * FreeLLMAPI endpoint; optional fallback endpoints are tried in order on quota,
+     * network, or server failures. No local server or shell process is required.
+     * Fallback rows: name|baseUrl|model|apiKey
+     */
     private fun requestApi(body: JSONObject): JSONObject {
-        val base = apiBase.trim().trimEnd('/')
-        val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
-        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"; connectTimeout = 20000; readTimeout = 60000
-            setRequestProperty("Content-Type", "application/json")
-            if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
-            doOutput = true
+        val providers = mutableListOf(ProviderConfig("primary", apiBase.trim(), model.trim().ifBlank { "auto" }, apiKey.trim()))
+        fallbackProviders.lineSequence().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }.forEach { line ->
+            val parts = line.split("|", limit = 4)
+            if (parts.size == 4 && parts[1].startsWith("https://") && parts[2].isNotBlank()) {
+                providers.add(ProviderConfig(parts[0].trim().ifBlank { "fallback" }, parts[1].trim(), parts[2].trim(), parts[3].trim()))
+            }
         }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val raw = stream.bufferedReader().use { it.readText() }; conn.disconnect()
-        if (code !in 200..299) throw IllegalStateException(runCatching { JSONObject(raw).optString("error", raw) }.getOrDefault("HTTP $code"))
-        return JSONObject(raw)
+        var lastError: Exception? = null
+        for (provider in providers.distinctBy { it.base to it.model }) {
+            try {
+                val base = provider.base.trim().trimEnd('/')
+                if (base.isBlank()) continue
+                val endpoint = when {
+                    base.endsWith("/chat/completions") -> base
+                    base.endsWith("/v1") -> "$base/chat/completions"
+                    else -> "$base/v1/chat/completions"
+                }
+                val outgoing = JSONObject(body.toString()).put("model", provider.model)
+                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"; connectTimeout = 12000; readTimeout = 45000
+                    setRequestProperty("Content-Type", "application/json")
+                    if (provider.key.isNotBlank()) setRequestProperty("Authorization", "Bearer ${provider.key}")
+                    doOutput = true
+                }
+                conn.outputStream.use { it.write(outgoing.toString().toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                conn.disconnect()
+                if (code !in 200..299) throw IllegalStateException("${provider.name}: HTTP $code — " + runCatching { JSONObject(raw).optString("error", raw) }.getOrDefault(raw))
+                return JSONObject(raw)
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw IllegalStateException("All configured model routes failed. " + (lastError?.message ?: "Check your provider settings."))
     }
 
     private fun executeAction(name: String, args: JSONObject): String {
@@ -410,7 +442,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Optional") })
             Text("Model / routing name")
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
-            Text("Requests use the OpenAI-compatible /v1/chat/completions API. Credentials stay in app-private preferences.", style = MaterialTheme.typography.bodySmall)
+            Text("Fallback routes (optional; one per line: name|https://provider.example/v1|model-id|API-key)")
+            OutlinedTextField(vm.fallbackProviders, { vm.fallbackProviders = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp), minLines = 3, maxLines = 6, placeholder = { Text("groq|https://api.groq.com/openai/v1|your-model|key") })
+            Text("Jarvis tries the primary FreeLLMAPI route first, then these OpenAI-compatible HTTPS routes in order. Each provider has its own key and model. This is the native mobile fallback layer; it does not run the upstream Node server.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                 Text("Enable Jarvis app interaction in Android Settings")
             }
