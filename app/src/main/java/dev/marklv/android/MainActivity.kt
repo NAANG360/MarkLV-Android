@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
@@ -57,13 +58,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import android.util.Base64
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.Executors
 
-data class ChatMessage(val role: String, val text: String)
+data class ChatMessage(val role: String, val text: String, val imageData: String? = null, val hasImage: Boolean = false)
 
 class App : Application() {
     override fun onCreate() { super.onCreate(); instance = this; Thread({ EmbeddedFreeLLMRuntime.start(this) }, "Jarvis-runtime-bootstrap").start() }
@@ -91,7 +94,7 @@ class MarkViewModel : ViewModel() {
         fallbackProviders = if (encryptedRoutes != null) SecretStore.decrypt(encryptedRoutes) else (prefs.getString("fallback_providers", "") ?: "")
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
-            messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
+            messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text"), null, o.optBoolean("has_image", false)) }
         }
         if ((encryptedKey == null && apiKey.isNotBlank()) || (encryptedRoutes == null && fallbackProviders.isNotBlank())) save()
         refreshMemorySummary()
@@ -108,19 +111,20 @@ class MarkViewModel : ViewModel() {
         memorySummary = "No saved memories"
     }
 
-    fun send(text: String) {
-        val prompt = text.trim()
-        if (prompt.isEmpty() || busy) return
+    fun send(text: String, imageData: String? = null) {
+        val prompt = text.trim().ifBlank { if (imageData != null) "Please analyze the attached image." else "" }
+        if ((prompt.isEmpty() && imageData == null) || busy) return
         if (apiBase.isBlank() && fallbackProviders.isBlank()) {
             error = "Configure the bundled FreeLLMAPI router or add a direct HTTPS provider route in Settings."; return
         }
-        messages = messages + ChatMessage("user", prompt); busy = true; error = null; persist()
+        val currentUserMessage = ChatMessage("user", prompt, imageData, imageData != null)
+        messages = messages + currentUserMessage; busy = true; error = null; persist()
         executor.execute {
             try {
                 val conversation = JSONArray()
                 conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
                 messages.dropLast(1).takeLast(16).forEach { conversation.put(JSONObject().put("role", if (it.role == "model") "assistant" else it.role).put("content", it.text)) }
-                conversation.put(JSONObject().put("role", "user").put("content", prompt))
+                conversation.put(JSONObject().put("role", "user").put("content", messageContent(currentUserMessage)))
                 val tools = JSONArray()
                     .put(tool("open_app", "Open an installed Android app by its visible name.", JSONObject().put("type","object").put("properties", JSONObject().put("app_name", JSONObject().put("type","string").put("description","Visible app name, e.g. YouTube"))).put("required", JSONArray().put("app_name"))))
                     .put(tool("open_url", "Open a web URL or app deep link with Android's normal app chooser/resolver.", JSONObject().put("type","object").put("properties", JSONObject().put("url", JSONObject().put("type","string").put("description","https URL or supported app deep link"))).put("required", JSONArray().put("url"))))
@@ -156,7 +160,7 @@ class MarkViewModel : ViewModel() {
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
                     val answer = message.optString("content").ifBlank { "The model returned an empty reply." }
-                    App.main.post { messages = messages + ChatMessage("model", answer); busy = false; persist() }
+                    App.main.post { releaseImagePayloads(); messages = messages + ChatMessage("model", answer); busy = false; persist() }
                 } else {
                     conversation.put(message)
                     val results = mutableListOf<String>()
@@ -173,10 +177,21 @@ class MarkViewModel : ViewModel() {
                     request.remove("tool_choice")
                     val final = requestApi(request).getJSONObject("choices").getJSONObject(0).getJSONObject("message").optString("content")
                     val answer = (if (results.isNotEmpty()) "Action results:\n" + results.joinToString("\n") + "\n\n" else "") + final
-                    App.main.post { messages = messages + ChatMessage("model", answer.ifBlank { "Finished the requested action." }); busy = false; persist() }
+                    App.main.post { releaseImagePayloads(); messages = messages + ChatMessage("model", answer.ifBlank { "Finished the requested action." }); busy = false; persist() }
                 }
-            } catch (e: Exception) { App.main.post { error = e.message ?: "Request failed"; busy = false } }
+            } catch (e: Exception) { App.main.post { releaseImagePayloads(); error = e.message ?: "Request failed"; busy = false; persist() } }
         }
+    }
+
+    private fun messageContent(message: ChatMessage): Any {
+        val image = message.imageData ?: return message.text
+        return JSONArray()
+            .put(JSONObject().put("type", "text").put("text", message.text))
+            .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$image")))
+    }
+
+    private fun releaseImagePayloads() {
+        messages = messages.map { if (it.imageData != null) it.copy(imageData = null, hasImage = true) else it }
     }
 
     private fun tool(name: String, description: String, parameters: JSONObject) =
@@ -508,7 +523,7 @@ class MarkViewModel : ViewModel() {
 
     private fun persist() {
         val a = JSONArray()
-        messages.takeLast(100).forEach { a.put(JSONObject().put("role", it.role).put("text", it.text)) }
+        messages.takeLast(100).forEach { a.put(JSONObject().put("role", it.role).put("text", it.text).put("has_image", it.hasImage || it.imageData != null)) }
         prefs.edit().putString("history", a.toString()).apply()
     }
 
