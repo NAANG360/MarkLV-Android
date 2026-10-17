@@ -26,14 +26,21 @@ object EmbeddedFreeLLMRuntime {
 
     private external fun startNodeWithArguments(arguments: Array<String>, environment: Array<String>): Int
 
-    fun hasBundledRuntime(context: Context): Boolean = runCatching { context.assets.list(ASSET_ROOT)?.contains("server.mjs") == true }.getOrDefault(false)\n\n    fun start(context: Context) {
+    fun hasBundledRuntime(context: Context): Boolean = runCatching { context.assets.list(ASSET_ROOT)?.contains("server.mjs") == true }.getOrDefault(false)
+
+    fun start(context: Context) {
         synchronized(this) {
             if (started) return
+            val prefs = context.getSharedPreferences("mark", Context.MODE_PRIVATE)
             val root = File(context.filesDir, ASSET_ROOT)
             val server = File(root, "server.mjs")
-            if (!server.exists()) {
-                runCatching { copyAssets(context, ASSET_ROOT, root) }
-                    .onFailure { startupError = "Bundled FreeLLMAPI assets could not be prepared: ${it.message}" }
+            val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionCode }.getOrDefault(1)
+            val copiedVersion = prefs.getInt("freellmapi_assets_version", -1)
+            if (!server.exists() || copiedVersion != appVersion) {
+                runCatching {
+                    copyAssets(context, ASSET_ROOT, root)
+                    prefs.edit().putInt("freellmapi_assets_version", appVersion).apply()
+                }.onFailure { startupError = "Bundled FreeLLMAPI assets could not be prepared: ${it.message}" }
             }
             if (!server.exists()) {
                 startupError = startupError ?: "This build does not contain the bundled FreeLLMAPI runtime."
