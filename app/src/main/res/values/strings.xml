@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="jarvis_accessibility_description">Optional permission that lets Jarvis interact with visible app controls when you explicitly ask it to. UI content may be inspected to complete requested actions.</string>
+</resources>
