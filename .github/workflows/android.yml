@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Jarvis Android APK
 on:
   push:
     branches: [main]
@@ -15,16 +15,53 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: /tmp/freellmapi/package-lock.json
       - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Fetch pinned Node.js 24 mobile runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="24.21.0-0"
+          BASE="https://github.com/fogtape/nodejs-mobile/releases/download/v${VERSION}"
+          curl -fL "${BASE}/nodejs-mobile-android-${VERSION}.zip" -o /tmp/nodejs-mobile.zip
+          curl -fL "${BASE}/SHA256SUMS" -o /tmp/nodejs-mobile-SHA256SUMS
+          grep "nodejs-mobile-android-${VERSION}.zip" /tmp/nodejs-mobile-SHA256SUMS | sha256sum -c -
+          mkdir -p /tmp/nodejs-mobile
+          unzip -q /tmp/nodejs-mobile.zip -d /tmp/nodejs-mobile
+          LIB="$(find /tmp/nodejs-mobile -path '*/bin/arm64-v8a/libnode.so' -print -quit)"
+          HEADER="$(find /tmp/nodejs-mobile -path '*/include/node/node.h' -print -quit)"
+          test -n "${LIB}" && test -n "${HEADER}"
+          mkdir -p app/src/main/jniLibs/arm64-v8a app/libnode/include
+          cp "${LIB}" app/src/main/jniLibs/arm64-v8a/libnode.so
+          INCLUDE_ROOT="$(dirname "$(dirname "${HEADER}")")"
+          cp -a "${INCLUDE_ROOT}/." app/libnode/include/
+      - name: Build and bundle FreeLLMAPI for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/tashfeenahmed/freellmapi.git /tmp/freellmapi
+          git -C /tmp/freellmapi checkout 369c47128edf92d30abb59d7b7c0e46c43e1ce57
+          cd /tmp/freellmapi
+          npm ci --no-audit --no-fund
+          npm run build -w client
+          mkdir -p "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client"
+          npx esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --external:sharp --outfile="${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/server.mjs" --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
+          cp -a client/dist "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client/dist"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
-      - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build and test Jarvis APK
+        run: gradle --no-daemon assembleDebug testDebugUnitTest
+      - name: Verify APK output
+        run: test -s app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MarkLV-Android-debug
+          name: Jarvis-Android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
