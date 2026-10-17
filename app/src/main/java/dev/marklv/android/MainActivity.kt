@@ -155,6 +155,10 @@ class MarkViewModel : ViewModel() {
                     .put(tool("copy_text", "Copy text to the Android clipboard.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                     .put(tool("dial_phone", "Open the phone dialer with a number prefilled. Does not place the call.", JSONObject().put("type","object").put("properties", JSONObject().put("number", JSONObject().put("type","string"))).put("required", JSONArray().put("number"))))
                     .put(tool("open_contact", "Open Android Contacts search for a person by name.", JSONObject().put("type","object").put("properties", JSONObject().put("name", JSONObject().put("type","string"))).put("required", JSONArray().put("name"))))
+                    .put(tool("draft_sms", "Open the SMS app with a recipient and message prefilled. Does not send automatically.", JSONObject().put("type","object").put("properties", JSONObject().put("number", JSONObject().put("type","string")).put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("number").put("text"))))
+                    .put(tool("draft_email", "Open an email app with recipient, subject and body prefilled. Does not send automatically.", JSONObject().put("type","object").put("properties", JSONObject().put("recipient", JSONObject().put("type","string")).put("subject", JSONObject().put("type","string")).put("body", JSONObject().put("type","string"))).put("required", JSONArray().put("recipient").put("subject").put("body"))))
+                    .put(tool("set_alarm", "Open Android Clock with an alarm time prefilled for the user to review.", JSONObject().put("type","object").put("properties", JSONObject().put("hour", JSONObject().put("type","integer").put("minimum",0).put("maximum",23)).put("minute", JSONObject().put("type","integer").put("minimum",0).put("maximum",59)).put("label", JSONObject().put("type","string"))).put("required", JSONArray().put("hour").put("minute"))))
+                    .put(tool("open_app_settings", "Open Android's app-info page for Jarvis so the user can manage permissions, force-stop or uninstall it.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("create_calendar_event", "Open Android's calendar event form with a title and time prefilled; the user reviews and saves it.", JSONObject().put("type","object").put("properties", JSONObject().put("title", JSONObject().put("type","string")).put("description", JSONObject().put("type","string")).put("minutes_from_now", JSONObject().put("type","integer").put("minimum",0).put("maximum",525600)).put("duration_minutes", JSONObject().put("type","integer").put("minimum",1).put("maximum",1440))).put("required", JSONArray().put("title").put("minutes_from_now").put("duration_minutes"))))
                     .put(tool("forget_memory", "Forget locally stored memories matching a specific user-requested phrase.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
                     .put(tool("clear_memory", "Delete all saved long-term Jarvis memories when the user explicitly requests this.", JSONObject().put("type","object").put("properties", JSONObject())))
@@ -465,6 +469,51 @@ class MarkViewModel : ViewModel() {
                     "Opened the dialer with the number filled in. No call was placed."
                 }
             }
+            "draft_sms" -> {
+                val number = args.optString("number").trim()
+                val text = args.optString("text")
+                val safeNumber = number.filter { it.isDigit() || it in "+*#()," }
+                if (safeNumber.isBlank() || safeNumber.length > 40) "SMS recipient was invalid."
+                else {
+                    val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", safeNumber, null))
+                        .putExtra("sms_body", text).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No SMS app could open this draft."
+                    else { ctx.startActivity(intent); "Opened an SMS draft. Nothing was sent automatically." }
+                }
+            }
+            "draft_email" -> {
+                val recipient = args.optString("recipient").trim()
+                if (recipient.isBlank() || !recipient.contains("@") || recipient.length > 254) "Email recipient was invalid."
+                else {
+                    val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("mailto", recipient, null))
+                        .putExtra(Intent.EXTRA_SUBJECT, args.optString("subject"))
+                        .putExtra(Intent.EXTRA_TEXT, args.optString("body"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No email app could open this draft."
+                    else { ctx.startActivity(intent); "Opened an email draft. Nothing was sent automatically." }
+                }
+            }
+            "set_alarm" -> {
+                val hour = args.optInt("hour", -1)
+                val minute = args.optInt("minute", -1)
+                if (hour !in 0..23 || minute !in 0..59) "Alarm time was invalid."
+                else {
+                    val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                        .putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                        .putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                        .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, args.optString("label", "Jarvis alarm"))
+                        .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No Clock app could set an alarm."
+                    else { ctx.startActivity(intent); "Opened the Clock app with an alarm prefilled for %02d:%02d. Review and save it.".format(hour, minute) }
+                }
+            }
+            "open_app_settings" -> {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+                "Opened Jarvis's Android app-info page. Android will require your confirmation for uninstall or permission changes."
+            }
             "open_contact" -> {
                 val name = args.optString("name").trim()
                 if (name.isBlank()) "Contact name was empty."
@@ -571,7 +620,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis, draft_sms, draft_email, set_alarm, open_app_settings. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
