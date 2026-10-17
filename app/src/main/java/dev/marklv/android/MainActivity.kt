@@ -589,7 +589,13 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
-                val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IllegalStateException("Unsupported image format.")
+                var sample = 1
+                while (maxOf(bounds.outWidth / sample, bounds.outHeight / sample) > 2048) sample *= 2
+                val options = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 }
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
                     ?: throw IllegalStateException("Could not decode this image.")
                 val maxSide = 1024
                 val scale = minOf(1f, maxSide.toFloat() / maxOf(bitmap.width, bitmap.height))
