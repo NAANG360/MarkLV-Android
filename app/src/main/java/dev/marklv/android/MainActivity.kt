@@ -141,6 +141,12 @@ class MarkViewModel : ViewModel() {
                     .put(tool("weather_search", "Open a weather search for a location.", JSONObject().put("type","object").put("properties", JSONObject().put("location", JSONObject().put("type","string"))).put("required", JSONArray().put("location"))))
                     .put(tool("draft_whatsapp", "Open WhatsApp with a prefilled message draft. The user must select a recipient and send it themselves.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                     .put(tool("undo_last", "Undo Jarvis's last supported reversible action, such as a media-volume change or newly scheduled reminder.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("read_notifications", "Summarize recent notifications recorded after the user enabled Jarvis Notification Access.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("read_clipboard", "Read the current clipboard while Jarvis is in the foreground.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("copy_text", "Copy text to the Android clipboard.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
+                    .put(tool("dial_phone", "Open the phone dialer with a number prefilled. Does not place the call.", JSONObject().put("type","object").put("properties", JSONObject().put("number", JSONObject().put("type","string"))).put("required", JSONArray().put("number"))))
+                    .put(tool("open_contact", "Open Android Contacts search for a person by name.", JSONObject().put("type","object").put("properties", JSONObject().put("name", JSONObject().put("type","string"))).put("required", JSONArray().put("name"))))
+                    .put(tool("create_calendar_event", "Open Android's calendar event form with a title and time prefilled; the user reviews and saves it.", JSONObject().put("type","object").put("properties", JSONObject().put("title", JSONObject().put("type","string")).put("description", JSONObject().put("type","string")).put("minutes_from_now", JSONObject().put("type","integer").put("minimum",0).put("maximum",525600)).put("duration_minutes", JSONObject().put("type","integer").put("minimum",1).put("maximum",1440))).put("required", JSONArray().put("title").put("minutes_from_now").put("duration_minutes"))))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -402,6 +408,55 @@ class MarkViewModel : ViewModel() {
                     else { ctx.startActivity(intent); "Opened WhatsApp message draft. No recipient was selected and nothing was sent automatically." }
                 }
             }
+            "read_notifications" -> JarvisNotificationListener.recent(ctx)
+            "read_clipboard" -> {
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = clipboard.primaryClip
+                if (clip == null || clip.itemCount == 0) "Clipboard is empty or not readable."
+                else (clip.getItemAt(0).coerceToText(ctx)?.toString() ?: "").take(10000)
+            }
+            "copy_text" -> {
+                val text = args.optString("text")
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis", text))
+                "Copied text to the Android clipboard."
+            }
+            "dial_phone" -> {
+                val number = args.optString("number").trim()
+                if (number.isBlank() || number.length > 40) "Phone number was invalid."
+                else {
+                    val safeNumber = number.filter { it.isDigit() || it in "+*#()," }
+                    ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(safeNumber))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "Opened the dialer with the number filled in. No call was placed."
+                }
+            }
+            "open_contact" -> {
+                val name = args.optString("name").trim()
+                if (name.isBlank()) "Contact name was empty."
+                else {
+                    val uri = Uri.withAppendedPath(android.provider.ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(name))
+                    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No contacts app could open that search."
+                    else { ctx.startActivity(intent); "Opened Contacts search for $name." }
+                }
+            }
+            "create_calendar_event" -> {
+                val title = args.optString("title").trim()
+                val minutes = args.optInt("minutes_from_now", -1)
+                val duration = args.optInt("duration_minutes", -1)
+                if (title.isBlank() || minutes !in 0..525600 || duration !in 1..1440) "Calendar event details were invalid."
+                else {
+                    val begin = System.currentTimeMillis() + minutes * 60_000L
+                    val intent = Intent(Intent.ACTION_INSERT).setData(android.provider.CalendarContract.Events.CONTENT_URI)
+                        .putExtra(android.provider.CalendarContract.Events.TITLE, title)
+                        .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, args.optString("description"))
+                        .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+                        .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, begin + duration * 60_000L)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No calendar app could create an event."
+                    else { ctx.startActivity(intent); "Opened a prefilled calendar event. Review and save it in your calendar app." }
+                }
+            }
             "undo_last" -> {
                 when (prefs.getString("undo_type", "")) {
                     "volume" -> {
@@ -456,7 +511,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
@@ -593,6 +648,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             TextButton(onClick = { context.startActivity(Intent(context, ProviderDashboardActivity::class.java)) }) { Text("Manage FreeLLMAPI providers") }
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                 Text("Enable Jarvis app interaction in Android Settings")
+            }
+            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
+                Text("Enable Jarvis notification access")
             }
         } },
         confirmButton = { TextButton(onClick = { vm.save(); settings = false }) { Text("Save") } },
