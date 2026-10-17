@@ -64,7 +64,15 @@ object EmbeddedFreeLLMRuntime {
                 prefs.edit().putString("freellmapi_encryption_key_enc", SecretStore.encrypt(encryptionKey)).apply()
             }
 
+            var setupSecret = SecretStore.decrypt(prefs.getString("freellmapi_setup_secret_enc", "") ?: "")
+            if (!setupSecret.matches(Regex("[0-9a-fA-F]{64}"))) {
+                val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+                setupSecret = bytes.joinToString("") { "%02x".format(it) }
+                prefs.edit().putString("freellmapi_setup_secret_enc", SecretStore.encrypt(setupSecret)).apply()
+            }
+
             val environment = arrayOf(
+                "JARVIS_EMBEDDED_SETUP_TOKEN=$setupSecret",
                 "HOME=${homeDir.absolutePath}",
                 "TMPDIR=${context.cacheDir.absolutePath}",
                 "NODE_OPTIONS=--max-old-space-size=256",
@@ -151,7 +159,8 @@ object EmbeddedFreeLLMRuntime {
 
         email = "jarvis-${UUID.randomUUID().toString().take(12)}@local.invalid"
         password = UUID.randomUUID().toString() + UUID.randomUUID().toString()
-        val setup = request("POST", "/api/auth/setup", null, JSONObject().put("email", email).put("password", password))
+        val setupSecret = SecretStore.decrypt(prefs.getString("freellmapi_setup_secret_enc", "") ?: "")
+        val setup = request("POST", "/api/auth/setup", null, JSONObject().put("email", email).put("password", password), setupToken = setupSecret)
         val token = setup?.optString("token").orEmpty()
         if (token.isBlank()) {
             throw IllegalStateException(setup?.optJSONObject("error")?.optString("message") ?: "Could not initialize the local provider dashboard.")
@@ -164,7 +173,7 @@ object EmbeddedFreeLLMRuntime {
         return token
     }
 
-    private fun request(method: String, path: String, token: String?, body: JSONObject?, timeoutMs: Int = 5000): JSONObject? {
+    private fun request(method: String, path: String, token: String?, body: JSONObject?, timeoutMs: Int = 5000, setupToken: String? = null): JSONObject? {
         return runCatching {
             val connection = (URL(BASE_URL + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
@@ -176,6 +185,7 @@ object EmbeddedFreeLLMRuntime {
                     doOutput = true
                 }
                 if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+                if (!setupToken.isNullOrBlank()) setRequestProperty("X-Jarvis-Embedded-Setup", setupToken)
             }
             if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
