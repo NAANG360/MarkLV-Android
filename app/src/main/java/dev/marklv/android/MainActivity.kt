@@ -151,6 +151,7 @@ class MarkViewModel : ViewModel() {
                     .put(tool("draft_whatsapp", "Open WhatsApp with a prefilled message draft. The user must select a recipient and send it themselves.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                     .put(tool("undo_last", "Undo Jarvis's last supported reversible action, such as a media-volume change or newly scheduled reminder.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("read_notifications", "Summarize recent notifications recorded after the user enabled Jarvis Notification Access.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("clear_notification_history", "Erase Jarvis's locally stored notification history when the user asks.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("read_clipboard", "Read the current clipboard while Jarvis is in the foreground.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("copy_text", "Copy text to the Android clipboard.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                     .put(tool("dial_phone", "Open the phone dialer with a number prefilled. Does not place the call.", JSONObject().put("type","object").put("properties", JSONObject().put("number", JSONObject().put("type","string"))).put("required", JSONArray().put("number"))))
@@ -448,6 +449,7 @@ class MarkViewModel : ViewModel() {
                 }
             }
             "read_notifications" -> JarvisNotificationListener.recent(ctx)
+            "clear_notification_history" -> { JarvisNotificationListener.clear(ctx); "Cleared Jarvis notification history." }
             "read_clipboard" -> {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 val clip = clipboard.primaryClip
@@ -620,7 +622,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis, draft_sms, draft_email, set_alarm, open_app_settings. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, clear_notification_history, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis, draft_sms, draft_email, set_alarm, open_app_settings. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
@@ -797,6 +799,8 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                 Text("Enable Jarvis notification access")
             }
+            TextButton(onClick = { JarvisNotificationListener.clear(context) }) { Text("Clear notification history") }
+            Text("Notification access lets Jarvis read recent notification content. Notification history is encrypted locally and can be cleared here.", style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { TextButton(onClick = { vm.save(); settings = false }) { Text("Save") } },
         dismissButton = { TextButton(onClick = { vm.clear() }) { Text("Clear history") } }
