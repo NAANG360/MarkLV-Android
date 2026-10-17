@@ -63,7 +63,7 @@ import java.util.concurrent.Executors
 data class ChatMessage(val role: String, val text: String)
 
 class App : Application() {
-    override fun onCreate() { super.onCreate(); instance = this }
+    override fun onCreate() { super.onCreate(); instance = this; Thread({ EmbeddedFreeLLMRuntime.start(this) }, "Jarvis-runtime-bootstrap").start() }
     companion object { lateinit var instance: App; val main = Handler(Looper.getMainLooper()) }
 }
 
