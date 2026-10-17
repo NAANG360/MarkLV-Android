@@ -60,4 +60,4 @@ Chat prompts go to the configured local FreeLLMAPI router, which then sends requ
 This is a work in progress. Feature parity is being approached through Android-native equivalents; exact desktop 1:1 parity is not technically possible for desktop-only features.
 
 
-<!-- Temporary CI validation marker; do not merge. -->
+<!-- Temporary CI validation marker; do not merge. Build verification for 0.4.0. -->
