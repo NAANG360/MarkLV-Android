@@ -45,7 +45,7 @@ Only HTTPS direct-provider URLs are accepted. The bundled local FreeLLMAPI endpo
 
 Use Actions → Build Jarvis Android APK in GitHub. The workflow builds an arm64 APK and uploads it as the Jarvis-Android-debug artifact. A source commit or an empty CI-status response is not proof of a successful build; check that workflow run and its artifact before installing.
 
-The Node runtime and FreeLLMAPI assets are staged by CI and are not committed as large generated binaries. CI validation is in progress. A plain local Android Studio build without those staged assets will not include the embedded router.
+The Node runtime and FreeLLMAPI assets are staged by CI and are not committed as large generated binaries. CI validation is being rerun after fixing the runtime artifact download step. A plain local Android Studio build without those staged assets will not include the embedded router.
 
 ## Privacy
 
