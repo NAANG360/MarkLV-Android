@@ -308,6 +308,7 @@ class MarkViewModel : ViewModel() {
                     memories.put(JSONObject().put("fact", fact).put("saved_at", System.currentTimeMillis()))
                     while (memories.length() > 500) memories.remove(0)
                     prefs.edit().putString("memories", memories.toString()).apply()
+                    App.main.post { refreshMemorySummary() }
                     "Saved to Jarvis local memory."
                 }
             }
