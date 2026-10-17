@@ -23,6 +23,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +44,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -374,6 +382,41 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
 }
 
+@Composable
+private fun JarvisOrb(active: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "jarvis-orb")
+    val pulse by transition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(tween(if (active) 420 else 1500), repeatMode = RepeatMode.Reverse),
+        label = "orb-pulse"
+    )
+    Canvas(modifier) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val radius = minOf(size.width, size.height) * 0.34f * pulse
+        val orange = Color(0xFFFF9E45)
+        val cyan = Color(0xFF65D8D0)
+        drawCircle(orange.copy(alpha = 0.08f), radius * 1.65f, Offset(cx, cy))
+        drawCircle(cyan.copy(alpha = 0.10f), radius * 1.28f, Offset(cx, cy), style = Stroke(width = 1.5f))
+        drawCircle(orange.copy(alpha = 0.78f), radius, Offset(cx, cy), style = Stroke(width = 2.2f))
+        drawCircle(Color(0xFF171A20), radius * 0.82f, Offset(cx, cy))
+        drawArc(cyan.copy(alpha = 0.9f), -205f, 115f, false, Offset(cx-radius*1.25f, cy-radius*1.25f), androidx.compose.ui.geometry.Size(radius*2.5f, radius*2.5f), style = Stroke(width = 2.5f))
+        drawArc(orange.copy(alpha = 0.9f), -20f, 130f, false, Offset(cx-radius*1.25f, cy-radius*1.25f), androidx.compose.ui.geometry.Size(radius*2.5f, radius*2.5f), style = Stroke(width = 2.5f))
+        val eyeY = cy - radius * 0.16f
+        drawLine(cyan, Offset(cx-radius*0.48f, eyeY), Offset(cx-radius*0.12f, eyeY), strokeWidth = radius*0.09f)
+        drawLine(cyan, Offset(cx+radius*0.12f, eyeY), Offset(cx+radius*0.48f, eyeY), strokeWidth = radius*0.09f)
+        drawLine(orange, Offset(cx-radius*0.30f, cy+radius*0.30f), Offset(cx+radius*0.30f, cy+radius*0.30f), strokeWidth = radius*0.06f)
+        if (active) {
+            for (i in 0..4) {
+                val x = cx - radius*0.55f + i*radius*0.275f
+                val h = radius * (0.12f + ((i+1)%3)*0.12f) * pulse
+                drawLine(cyan, Offset(x, cy+radius*0.60f), Offset(x, cy+radius*0.60f-h), strokeWidth = radius*0.035f)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
@@ -417,7 +460,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
                     Text("Voice in. Actions out.", color = Color.LightGray)
                     Text("Configure FreeLLMAPI in Settings to begin.", color = Color.Gray)
                 }
-            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            } else {
+            JarvisOrb(active = vm.busy, modifier = Modifier.align(Alignment.CenterHorizontally).size(86.dp))
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(vm.messages) { m ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.role == "user") Arrangement.End else Arrangement.Start) {
                         Column(Modifier.widthIn(max = 330.dp).background(if (m.role == "user") Color(0xFF30343B) else Color(0xFF1D2024), RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -428,6 +473,7 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
                     }
                 }
                 if (vm.busy) item { Text("Jarvis is working…", color = Color(0xFF65D8D0)) }
+            }
             }
         }
     }
