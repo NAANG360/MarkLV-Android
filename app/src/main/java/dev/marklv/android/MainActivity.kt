@@ -73,7 +73,7 @@ class MarkViewModel : ViewModel() {
     var messages by mutableStateOf(listOf<ChatMessage>()); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set\n    var memorySummary by mutableStateOf("No saved memories"); private set
-    var apiBase by mutableStateOf("https://your-freellmapi-host.example")
+    var apiBase by mutableStateOf("http://127.0.0.1:3001")
     var apiKey by mutableStateOf("")
     var model by mutableStateOf("auto")
     var fallbackProviders by mutableStateOf("")
@@ -187,16 +187,19 @@ class MarkViewModel : ViewModel() {
             try {
                 val base = provider.base.trim().trimEnd('/')
                 if (base.isBlank()) continue
+                val localRouter = base == "http://127.0.0.1:3001" || base == "http://localhost:3001"
+                if (!base.startsWith("https://") && !localRouter) throw IllegalArgumentException("Only HTTPS provider routes or the bundled localhost router are allowed.")
                 val endpoint = when {
                     base.endsWith("/chat/completions") -> base
                     base.endsWith("/v1") -> "$base/chat/completions"
                     else -> "$base/v1/chat/completions"
                 }
                 val outgoing = JSONObject(body.toString()).put("model", provider.model)
+                val authKey = if (localRouter) EmbeddedFreeLLMRuntime.unifiedApiKey(App.instance) else provider.key
                 val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; connectTimeout = 12000; readTimeout = 45000
                     setRequestProperty("Content-Type", "application/json")
-                    if (provider.key.isNotBlank()) setRequestProperty("Authorization", "Bearer ${provider.key}")
+                    if (authKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $authKey")
                     doOutput = true
                 }
                 conn.outputStream.use { it.write(outgoing.toString().toByteArray(Charsets.UTF_8)) }
@@ -561,9 +564,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
         onDismissRequest = { settings = false },
         title = { Text("Jarvis settings") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("FreeLLMAPI base URL")
-            OutlinedTextField(vm.apiBase, { vm.apiBase = it }, singleLine = true, placeholder = { Text("https://your-server.example") })
-            Text("API key (if your server requires one)")
+            Text("FreeLLMAPI base URL (bundled local router by default)")
+            OutlinedTextField(vm.apiBase, { vm.apiBase = it }, singleLine = true, placeholder = { Text("http://127.0.0.1:3001") })
+            Text("API key (external FreeLLMAPI only; bundled router uses its private local key)")
             OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Optional") })
             Text("Model / routing name")
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
@@ -571,8 +574,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             TextButton(onClick = { clearMemoryConfirm = true }) { Text("Clear Jarvis memory") }
             Text("Fallback routes (optional; one per line: name|https://provider.example/v1|model-id|API-key)")
             OutlinedTextField(vm.fallbackProviders, { vm.fallbackProviders = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp), minLines = 3, maxLines = 6, placeholder = { Text("groq|https://api.groq.com/openai/v1|your-model|key") })
-            Text("Jarvis tries the FreeLLMAPI route first when configured, then direct OpenAI-compatible HTTPS routes in order. You can use direct routes without hosting a server. Each route has its own key and model. This native mobile router does not run the upstream FreeLLMAPI Node server.", style = MaterialTheme.typography.bodySmall)
+            Text("The APK build bundles FreeLLMAPI and starts its Node runtime locally. Add provider keys in the embedded provider dashboard. Optional HTTPS routes are tried as fallback. Each fallback row is name|baseUrl|model|API-key.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Enable reminder notifications") }
+            TextButton(onClick = { context.startActivity(Intent(context, ProviderDashboardActivity::class.java)) }) { Text("Manage FreeLLMAPI providers") }
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                 Text("Enable Jarvis app interaction in Android Settings")
             }
