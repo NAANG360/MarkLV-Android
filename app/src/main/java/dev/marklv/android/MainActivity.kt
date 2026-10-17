@@ -455,14 +455,14 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             vm.error?.let { Text(it, color = Color(0xFFFF8A80), modifier = Modifier.padding(12.dp)) }
             if (vm.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("◉", color = Color(0xFFFF9E45), style = MaterialTheme.typography.displayLarge)
+                    JarvisOrb(active = vm.busy, modifier = Modifier.size(210.dp))
                     Text("At your service.", style = MaterialTheme.typography.headlineSmall)
                     Text("Voice in. Actions out.", color = Color.LightGray)
-                    Text("Configure FreeLLMAPI in Settings to begin.", color = Color.Gray)
+                    Text("Configure model routes in Settings to begin.", color = Color.Gray)
                 }
             } else {
             JarvisOrb(active = vm.busy, modifier = Modifier.align(Alignment.CenterHorizontally).size(86.dp))
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(vm.messages) { m ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.role == "user") Arrangement.End else Arrangement.Start) {
                         Column(Modifier.widthIn(max = 330.dp).background(if (m.role == "user") Color(0xFF30343B) else Color(0xFF1D2024), RoundedCornerShape(16.dp)).padding(12.dp)) {
