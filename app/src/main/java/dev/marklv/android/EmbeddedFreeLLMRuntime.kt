@@ -167,7 +167,7 @@ object EmbeddedFreeLLMRuntime {
         }
 
         email = "jarvis-${UUID.randomUUID().toString().take(12)}@local.invalid"
-        password = UUID.randomUUID().toString() + UUID.randomUUID().toString()
+        password = UUID.randomUUID().toString().replace("-", "") + "Aa1!"
         val setupSecret = SecretStore.decrypt(prefs.getString("freellmapi_setup_secret_enc", "") ?: "")
         val setup = request("POST", "/api/auth/setup", null, JSONObject().put("email", email).put("password", password), setupToken = setupSecret)
         val token = setup?.optString("token").orEmpty()
