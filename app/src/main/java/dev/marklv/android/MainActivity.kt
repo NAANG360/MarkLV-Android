@@ -744,7 +744,36 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
         } }, containerColor = Color(0xFF101114)
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            vm.error?.let { Text(it, color = Color(0xFFFF8A80), modifier = Modifier.padding(12.dp)) }
+            vm.error?.let { errorText ->
+                val needsProvider = errorText.contains("no_pr", ignoreCase = true) ||
+                    errorText.contains("no candidate model", ignoreCase = true) ||
+                    errorText.contains("provider key", ignoreCase = true) ||
+                    errorText.contains("All configured model routes failed", ignoreCase = true)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF351E22))
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            if (needsProvider) "Jarvis needs an AI provider key" else "Jarvis hit an error",
+                            color = Color(0xFFFF9A94),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            if (needsProvider) "FreeLLMAPI is running, but no usable provider key is configured. Open provider setup, add a provider API key, then try your message again. Free provider tiers may still require their own API key." else errorText,
+                            color = Color(0xFFFFC9C5),
+                            modifier = Modifier.padding(top = 5.dp)
+                        )
+                        if (needsProvider) {
+                            Button(
+                                onClick = { context.startActivity(Intent(context, ProviderDashboardActivity::class.java)) },
+                                modifier = Modifier.padding(top = 8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9E45), contentColor = Color(0xFF101114))
+                            ) { Text("CONFIGURE AI PROVIDERS") }
+                        }
+                    }
+                }
+            }
             if (vm.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     JarvisOrb(active = vm.busy, modifier = Modifier.size(210.dp))
