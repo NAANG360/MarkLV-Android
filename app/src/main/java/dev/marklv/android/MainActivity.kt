@@ -3,13 +3,15 @@ package dev.marklv.android
 import android.Manifest
 import android.app.Application
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.speech.RecognitionListener
-import android.speech.tts.TextToSpeech
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,12 +35,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -55,48 +59,133 @@ class MarkViewModel : ViewModel() {
     var messages by mutableStateOf(listOf<ChatMessage>()); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    var apiBase by mutableStateOf("https://your-freellmapi-host.example")
     var apiKey by mutableStateOf("")
-    var model by mutableStateOf("gemini-2.5-flash")
+    var model by mutableStateOf("auto")
     init {
+        apiBase = prefs.getString("base", apiBase) ?: apiBase
         apiKey = prefs.getString("key", "") ?: ""
-        model = prefs.getString("model", "gemini-2.5-flash") ?: "gemini-2.5-flash"
+        model = prefs.getString("model", "auto") ?: "auto"
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
         }
     }
-    fun save() { prefs.edit().putString("key", apiKey.trim()).putString("model", model.trim()).apply() }
+    fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key", apiKey.trim()).putString("model", model.trim()).apply() }
     fun clear() { messages = emptyList(); persist() }
+
     fun send(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty() || busy) return
-        if (apiKey.isBlank()) { error = "Add your Gemini API key in Settings."; return }
+        if (apiBase.isBlank() || apiBase.contains("your-freellmapi-host.example")) {
+            error = "Open Settings and enter your FreeLLMAPI server URL first."; return
+        }
         messages = messages + ChatMessage("user", prompt); busy = true; error = null; persist()
         executor.execute {
             try {
-                val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent?key=" + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8")
-                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; connectTimeout = 20000; readTimeout = 60000
-                    setRequestProperty("Content-Type", "application/json"); doOutput = true
+                val conversation = JSONArray()
+                conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                messages.dropLast(1).takeLast(16).forEach { conversation.put(JSONObject().put("role", if (it.role == "model") "assistant" else it.role).put("content", it.text)) }
+                conversation.put(JSONObject().put("role", "user").put("content", prompt))
+                val tools = JSONArray()
+                    .put(tool("open_app", "Open an installed Android app by its visible name.", JSONObject().put("type","object").put("properties", JSONObject().put("app_name", JSONObject().put("type","string").put("description","Visible app name, e.g. YouTube"))).put("required", JSONArray().put("app_name"))))
+                    .put(tool("open_url", "Open a web URL or app deep link with Android's normal app chooser/resolver.", JSONObject().put("type","object").put("properties", JSONObject().put("url", JSONObject().put("type","string").put("description","https URL or supported app deep link"))).put("required", JSONArray().put("url"))))
+                    .put(tool("search_web", "Open a web search for the requested query.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
+                    .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
+                val first = requestApi(request)
+                val message = first.getJSONObject("choices").getJSONObject(0).getJSONObject("message")
+                val calls = message.optJSONArray("tool_calls")
+                if (calls == null || calls.length() == 0) {
+                    val answer = message.optString("content").ifBlank { "The model returned an empty reply." }
+                    App.main.post { messages = messages + ChatMessage("model", answer); busy = false; persist() }
+                } else {
+                    conversation.put(message)
+                    val results = mutableListOf<String>()
+                    for (i in 0 until minOf(calls.length(), 4)) {
+                        val call = calls.getJSONObject(i)
+                        val fn = call.getJSONObject("function")
+                        val args = JSONObject(fn.optString("arguments", "{}"))
+                        val result = executeAction(fn.optString("name"), args)
+                        results.add(result)
+                        conversation.put(JSONObject().put("role","tool").put("tool_call_id",call.optString("id")).put("content",result))
+                    }
+                    request.put("messages", conversation)
+                    request.remove("tools")
+                    request.remove("tool_choice")
+                    val final = requestApi(request).getJSONObject("choices").getJSONObject(0).getJSONObject("message").optString("content")
+                    val answer = (if (results.isNotEmpty()) "Action results:\n" + results.joinToString("\n") + "\n\n" else "") + final
+                    App.main.post { messages = messages + ChatMessage("model", answer.ifBlank { "Finished the requested action." }); busy = false; persist() }
                 }
-                val history = JSONArray()
-                messages.dropLast(1).takeLast(15).forEach { m -> history.put(JSONObject().put("role", m.role).put("parts", JSONArray().put(JSONObject().put("text", m.text)))) }
-                history.put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt))))
-                val body = JSONObject().put("contents", history).put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 2048))
-                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val raw = stream.bufferedReader().use { it.readText() }; conn.disconnect()
-                if (code !in 200..299) throw IllegalStateException(runCatching { JSONObject(raw).getJSONObject("error").getString("message") }.getOrDefault("HTTP $code"))
-                val reply = JSONObject(raw).getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
-                App.main.post { messages = messages + ChatMessage("model", reply); busy = false; persist() }
             } catch (e: Exception) { App.main.post { error = e.message ?: "Request failed"; busy = false } }
         }
     }
+
+    private fun tool(name: String, description: String, parameters: JSONObject) =
+        JSONObject().put("type","function").put("function",JSONObject().put("name",name).put("description",description).put("parameters",parameters))
+
+    private fun requestApi(body: JSONObject): JSONObject {
+        val base = apiBase.trim().trimEnd('/')
+        val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"; connectTimeout = 20000; readTimeout = 60000
+            setRequestProperty("Content-Type", "application/json")
+            if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
+            doOutput = true
+        }
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val raw = stream.bufferedReader().use { it.readText() }; conn.disconnect()
+        if (code !in 200..299) throw IllegalStateException(runCatching { JSONObject(raw).optString("error", raw) }.getOrDefault("HTTP $code"))
+        return JSONObject(raw)
+    }
+
+    private fun executeAction(name: String, args: JSONObject): String {
+        val ctx = App.instance
+        return when (name) {
+            "open_url" -> {
+                val raw = args.optString("url").trim()
+                if (raw.isBlank() || raw.startsWith("javascript:", true) || raw.startsWith("file:", true)) return "Blocked unsupported URL."
+                val uri = Uri.parse(raw)
+                val safeUri = if (uri.scheme == null) Uri.parse("https://$raw") else uri
+                val intent = Intent(Intent.ACTION_VIEW, safeUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(ctx.packageManager) == null) "No installed app can open that URL." else { ctx.startActivity(intent); "Opened $safeUri" }
+            }
+            "search_web" -> {
+                val q = args.optString("query").trim()
+                if (q.isBlank()) "Search query was empty." else {
+                    val uri = Uri.parse("https://www.google.com/search?q=" + URLEncoder.encode(q, "UTF-8"))
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "Opened web search for: $q"
+                }
+            }
+            "open_app" -> {
+                val wanted = args.optString("app_name").trim()
+                if (wanted.isBlank()) return "App name was empty."
+                val pm = ctx.packageManager
+                val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                val match = apps.firstOrNull { pm.getApplicationLabel(it).toString().equals(wanted, true) }
+                    ?: apps.firstOrNull { pm.getApplicationLabel(it).toString().contains(wanted, true) }
+                if (match == null) "Couldn't find an installed app matching '$wanted'."
+                else {
+                    val launch = pm.getLaunchIntentForPackage(match.packageName)
+                    if (launch == null) "That app doesn't expose a normal launch intent."
+                    else { launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); ctx.startActivity(launch); "Opened ${pm.getApplicationLabel(match)}." }
+                }
+            }
+            else -> "Action '$name' is not available. No action was executed."
+        }
+    }
+
     private fun persist() {
         val a = JSONArray()
         messages.takeLast(100).forEach { a.put(JSONObject().put("role", it.role).put("text", it.text)) }
         prefs.edit().putString("history", a.toString()).apply()
+    }
+
+    companion object {
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web. Never claim an action succeeded unless its tool result confirms it. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
@@ -105,7 +194,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this) { if (it == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFF9E45), secondary = Color(0xFF65D8D0), background = Color(0xFF101114), surface = Color(0xFF1A1C20))) { ChatScreen({ tts?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "mark") }) } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFF9E45), secondary = Color(0xFF65D8D0), background = Color(0xFF101114), surface = Color(0xFF1A1C20))) { ChatScreen({ tts?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "jarvis") }) } }
     }
     override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
 }
@@ -126,47 +215,60 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onError(error: Int) { recognizer.destroy() }
-                override fun onResults(results: Bundle?) {
-                    input = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: input
-                    recognizer.destroy()
-                }
+                override fun onResults(results: Bundle?) { input = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: input; recognizer.destroy() }
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
             recognizer.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM))
         }
     }
-    Scaffold(topBar = { TopAppBar(title = { Column { Text("MARK / LV", fontWeight = FontWeight.Black); Text(if (vm.busy) "THINKING…" else "PERSONAL AI • ANDROID", style = MaterialTheme.typography.labelSmall, color = Color(0xFF65D8D0)) } }, actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.Settings, "Settings") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF151619))) },
+    Scaffold(
+        topBar = { TopAppBar(title = { Column { Text("JARVIS", fontWeight = FontWeight.Black); Text(if (vm.busy) "WORKING…" else "PERSONAL AI • ANDROID", style = MaterialTheme.typography.labelSmall, color = Color(0xFF65D8D0)) } }, actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.Settings, "Settings") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF151619))) },
         bottomBar = { Row(Modifier.fillMaxWidth().background(Color(0xFF151619)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { speechPermission.launch(Manifest.permission.RECORD_AUDIO) }) { Icon(Icons.Default.Mic, "Speak", tint = Color(0xFF65D8D0)) }
             Box(Modifier.weight(1f).background(Color(0xFF25272C), RoundedCornerShape(22.dp)).padding(14.dp)) {
-                if (input.isEmpty()) Text("Ask Mark anything…", color = Color.LightGray)
+                if (input.isEmpty()) Text("Ask Jarvis to do something…", color = Color.LightGray)
                 BasicTextField(input, { input = it }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White), maxLines = 5)
             }
             IconButton(enabled = !vm.busy, onClick = { val t = input; input = ""; vm.send(t) }) { Icon(Icons.Default.Send, "Send", tint = Color(0xFFFF9E45)) }
-        } }, containerColor = Color(0xFF101114)) { padding ->
+        } }, containerColor = Color(0xFF101114)
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             vm.error?.let { Text(it, color = Color(0xFFFF8A80), modifier = Modifier.padding(12.dp)) }
-            if (vm.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("◉", color = Color(0xFFFF9E45), style = MaterialTheme.typography.displayLarge); Text("Ready when you are.", style = MaterialTheme.typography.headlineSmall); Text("Voice in. Ideas out.", color = Color.LightGray); Text("Set a Gemini key in Settings.", color = Color.Gray) } }
-            else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (vm.messages.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("◉", color = Color(0xFFFF9E45), style = MaterialTheme.typography.displayLarge)
+                    Text("At your service.", style = MaterialTheme.typography.headlineSmall)
+                    Text("Voice in. Actions out.", color = Color.LightGray)
+                    Text("Configure FreeLLMAPI in Settings to begin.", color = Color.Gray)
+                }
+            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(vm.messages) { m ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.role == "user") Arrangement.End else Arrangement.Start) {
                         Column(Modifier.widthIn(max = 330.dp).background(if (m.role == "user") Color(0xFF30343B) else Color(0xFF1D2024), RoundedCornerShape(16.dp)).padding(12.dp)) {
-                            Text(if (m.role == "user") "YOU" else "MARK", color = if (m.role == "user") Color.LightGray else Color(0xFFFF9E45), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text(if (m.role == "user") "YOU" else "JARVIS", color = if (m.role == "user") Color.LightGray else Color(0xFFFF9E45), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(4.dp)); Text(m.text, color = Color.White)
                             if (m.role == "model") TextButton(onClick = { speak(m.text) }) { Icon(Icons.Default.VolumeUp, null); Spacer(Modifier.width(5.dp)); Text("Speak reply") }
                         }
                     }
                 }
-                if (vm.busy) item { Text("Mark is thinking…", color = Color(0xFF65D8D0)) }
+                if (vm.busy) item { Text("Jarvis is working…", color = Color(0xFF65D8D0)) }
             }
         }
     }
-    if (settings) AlertDialog(onDismissRequest = { settings = false }, title = { Text("Mark settings") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Gemini API key"); OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Paste API key") })
-            Text("Model ID"); OutlinedTextField(vm.model, { vm.model = it }, singleLine = true)
-            Text("Key is stored in app-private preferences and sent to Google for chat.", style = MaterialTheme.typography.bodySmall)
-        }
-    }, confirmButton = { TextButton(onClick = { vm.save(); settings = false }) { Text("Save") } }, dismissButton = { TextButton(onClick = vm::clear) { Text("Clear history") } })
+    if (settings) AlertDialog(
+        onDismissRequest = { settings = false },
+        title = { Text("Jarvis settings") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("FreeLLMAPI base URL")
+            OutlinedTextField(vm.apiBase, { vm.apiBase = it }, singleLine = true, placeholder = { Text("https://your-server.example") })
+            Text("API key (if your server requires one)")
+            OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Optional") })
+            Text("Model / routing name")
+            OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
+            Text("Requests use the OpenAI-compatible /v1/chat/completions API. Credentials stay in app-private preferences.", style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(onClick = { vm.save(); settings = false }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { vm.clear() }) { Text("Clear history") } }
+    )
 }
