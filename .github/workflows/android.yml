@@ -37,7 +37,9 @@ jobs:
           HEADER="$(find /tmp/nodejs-mobile -path '*/include/node/node.h' -print -quit)"
           test -n "${LIB}" && test -n "${HEADER}"
           mkdir -p app/src/main/jniLibs/arm64-v8a app/libnode/include
-          cp "${LIB}" app/src/main/jniLibs/arm64-v8a/libnode.so
+          LIB_DIR="$(dirname "${LIB}")"
+          cp "${LIB_DIR}"/*.so app/src/main/jniLibs/arm64-v8a/
+          find "${LIB_DIR}" -maxdepth 1 -name "*.so" -printf "%f\n"
           INCLUDE_ROOT="$(dirname "$(dirname "${HEADER}")")"
           cp -a "${INCLUDE_ROOT}/." app/libnode/include/
       - name: Build and bundle FreeLLMAPI for Android
