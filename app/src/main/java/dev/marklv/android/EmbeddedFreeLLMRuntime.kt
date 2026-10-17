@@ -88,7 +88,8 @@ object EmbeddedFreeLLMRuntime {
                 "ENCRYPTION_KEY=$encryptionKey",
                 "FREEAPI_DB_PATH=${File(dataDir, "freeapi.db").absolutePath}",
                 "CLIENT_DIST=${clientDir.absolutePath}",
-                "FREEAPI_INSTALL_METHOD=jarvis-android"
+                "FREEAPI_INSTALL_METHOD=jarvis-android",
+                "FREEAPI_DESKTOP=1"
             )
             started = true
             Thread({
