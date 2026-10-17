@@ -1,20 +1,40 @@
-# Mark LV Android
+# Jarvis Android
 
-Native Android companion inspired by [Mark-LV](https://github.com/FatihMakes/Mark-LV). This is an Android-first implementation, not a claim of exact feature parity with the desktop app.
+A native Android personal assistant inspired by the idea of Mark-LV/Jarvis. This is an independent Android-first implementation, not a claim of feature parity with any desktop project.
 
-## Included
-- Kotlin + Jetpack Compose chat UI
-- Gemini REST API chat (user supplies their own API key)
+## Current MVP
+
+- Kotlin + Jetpack Compose chat interface branded Jarvis
+- OpenAI-compatible FreeLLMAPI endpoint configuration
+- Model/routing name configuration (use the value your FreeLLMAPI deployment supports; `auto` is the default suggestion)
+- Optional bearer token for deployments that require authentication
+- Function/tool calling for three Android actions: launch an installed app by its visible name, open a URL/deep link, and open a web search
 - Android speech recognition and Text-to-Speech
-- Local conversation history
-- GitHub Actions debug APK build
+- Local conversation history in app-private preferences
+- GitHub Actions debug APK workflow
 
-Desktop OS automation, desktop screen capture, and the original desktop holographic renderer need Android-specific replacements and are not included yet. Gemini usage is subject to Google's quotas and terms; it is not unlimited.
+## FreeLLMAPI setup
+
+This app calls `/v1/chat/completions` on a FreeLLMAPI-compatible server. It does **not** bundle a server or automatically create a public endpoint. Enter the base URL for a FreeLLMAPI instance you control or are authorized to use, plus any required API key and a supported model/routing name.
+
+Examples:
+- Base URL `https://your-host.example` → request path `/v1/chat/completions`
+- Base URL ending in `/v1` → request path `/chat/completions`
+
+Provider quotas, availability, authentication, and terms still apply. Never paste secrets into public issues or commit them to this repository.
+
+## Android actions and permissions
+
+Actions run through normal Android intents and package-manager APIs. Android may show a chooser, deny an operation, or lack a matching app. This MVP does not execute shell commands, use root, or control Miss Minutes. It also does not yet provide general-purpose cross-app accessibility interaction; that is a separate implementation step requiring an explicit Accessibility permission and careful user-visible controls.
 
 ## Build
-Open in Android Studio with JDK 17. Or push to GitHub and run **Actions → Build Android APK**. The workflow uploads `app-debug.apk` as an artifact.
 
-Add your Gemini API key in the app's Settings. Do not commit API keys.
+Open in Android Studio with JDK 17, or use **Actions → Build Android APK** in GitHub. The workflow uploads `app-debug.apk` as an artifact. A successful source commit is not proof that the APK built; check the latest Actions run for the actual build result.
+
+## Privacy
+
+Conversation history and settings are stored in app-private preferences. Messages are sent to the configured model endpoint when you chat. Review that server/provider's privacy and retention policies before using sensitive data.
 
 ## Attribution
-Independent Android implementation inspired by Mark-LV's public feature set; not affiliated with FatihMakes. No upstream source or assets are bundled. Check upstream licensing before redistributing copied code/assets.
+
+Independent Android implementation. Not affiliated with the original Mark-LV project. No upstream source or assets are bundled.
