@@ -72,9 +72,9 @@ class MarkViewModel : ViewModel() {
     var fallbackProviders by mutableStateOf("")
     init {
         apiBase = prefs.getString("base", apiBase) ?: apiBase
-        apiKey = SecretStore.decrypt(prefs.getString("key_enc", null) ?: (prefs.getString("key", "") ?: ""))
+        val encryptedKey = prefs.getString("key_enc", null)\n        apiKey = if (encryptedKey != null) SecretStore.decrypt(encryptedKey) else (prefs.getString("key", "") ?: "")
         model = prefs.getString("model", "auto") ?: "auto"
-        fallbackProviders = SecretStore.decrypt(prefs.getString("fallback_providers_enc", null) ?: (prefs.getString("fallback_providers", "") ?: ""))
+        val encryptedRoutes = prefs.getString("fallback_providers_enc", null)\n        fallbackProviders = if (encryptedRoutes != null) SecretStore.decrypt(encryptedRoutes) else (prefs.getString("fallback_providers", "") ?: "")
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
