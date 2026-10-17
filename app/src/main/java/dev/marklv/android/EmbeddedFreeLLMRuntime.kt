@@ -63,7 +63,6 @@ object EmbeddedFreeLLMRuntime {
             dataDir.mkdirs()
             clientDir.mkdirs()
             homeDir.mkdirs()
-            val prefs = context.getSharedPreferences("mark", Context.MODE_PRIVATE)
             var encryptionKey = SecretStore.decrypt(prefs.getString("freellmapi_encryption_key_enc", "") ?: "")
             if (!encryptionKey.matches(Regex("[0-9a-fA-F]{64}"))) {
                 val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
