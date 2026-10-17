@@ -9,6 +9,8 @@ import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -160,7 +162,7 @@ class MarkViewModel : ViewModel() {
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
-                val message = first.getJSONObject("choices").getJSONObject(0).getJSONObject("message")
+                val message = first.getJSONArray("choices").getJSONObject(0).getJSONObject("message")
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
                     val answer = message.optString("content").ifBlank { "The model returned an empty reply." }
@@ -190,7 +192,7 @@ class MarkViewModel : ViewModel() {
                     request.put("messages", conversation)
                     request.remove("tools")
                     request.remove("tool_choice")
-                    val final = requestApi(request).getJSONObject("choices").getJSONObject(0).getJSONObject("message").optString("content")
+                    val final = requestApi(request).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content")
                     val answer = (if (results.isNotEmpty()) "Action results:\n" + results.joinToString("\n") + "\n\n" else "") + final
                     App.main.post { releaseImagePayloads(); messages = messages + ChatMessage("model", answer.ifBlank { "Finished the requested action." }); busy = false; persist() }
                 }
