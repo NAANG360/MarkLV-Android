@@ -98,6 +98,7 @@ class MarkViewModel : ViewModel() {
     }
     fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key_enc", SecretStore.encrypt(apiKey.trim())).putString("model", model.trim()).putString("fallback_providers_enc", SecretStore.encrypt(fallbackProviders.trim())).remove("key").remove("fallback_providers").apply() }
     fun clear() { messages = emptyList(); persist() }
+    fun reportError(message: String) { error = message }
     fun refreshMemorySummary() {
         val count = runCatching { JSONArray(prefs.getString("memories", "[]")).length() }.getOrDefault(0)
         memorySummary = if (count == 0) "No saved memories" else "$count saved fact(s)"
@@ -575,8 +576,8 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
                 val name = uri.lastPathSegment ?: "document"
                 val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText().take(50000) }
                     ?: throw IllegalStateException("Could not read this file.")
-                input = (input + "\\n\\n[Attached text file: $name]\\n" + content).trim()
-            }.onFailure { vm.error = "Could not attach file: ${it.message}" }
+                input = (input + "\n\n[Attached text file: $name]\n" + content).trim()
+            }.onFailure { vm.reportError("Could not attach file: ${it.message}") }
         }
     }
     val speechPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
