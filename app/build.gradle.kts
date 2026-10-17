@@ -6,8 +6,8 @@ android {
         applicationId = "dev.marklv.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {
             cmake { arguments += listOf("-DANDROID_STL=c++_shared") }
