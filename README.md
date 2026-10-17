@@ -1,40 +1,60 @@
 # Jarvis Android
 
-A native Android personal assistant inspired by the idea of Mark-LV/Jarvis. This is an independent Android-first implementation, not a claim of feature parity with any desktop project.
+A native Android personal assistant inspired by the feature set of Mark-LV. This repository is an Android adaptation, not an exact reproduction of the desktop application. The original project targets Windows, macOS and Linux and relies on desktop-only APIs; Jarvis replaces those with Android-native APIs where possible.
 
-## Current MVP
+## Current implementation
 
-- Kotlin + Jetpack Compose chat interface branded Jarvis
-- OpenAI-compatible FreeLLMAPI endpoint configuration
-- Model/routing name configuration (use the value your FreeLLMAPI deployment supports; `auto` is the default suggestion)
-- Optional bearer token for deployments that require authentication
-- Function/tool calling for three Android actions: launch an installed app by its visible name, open a URL/deep link, and open a web search
-- Android speech recognition and Text-to-Speech
-- Local conversation history in app-private preferences
-- GitHub Actions debug APK workflow
+- Kotlin + Jetpack Compose interface with an animated Jarvis HUD orb
+- Bundled FreeLLMAPI server build pipeline, using an embedded Node.js mobile runtime
+- FreeLLMAPI provider dashboard hosted locally inside the APK's WebView
+- OpenAI-compatible chat/tool calling with the FreeLLMAPI auto router
+- Optional HTTPS fallback providers if the local router or a provider is unavailable
+- Android speech recognition and text-to-speech
+- Encrypted provider credentials using Android Keystore
+- Local conversation history and searchable long-term facts
+- User-visible memory clearing
+- Android app launching, URL/deep-link opening, web/YouTube/weather search, maps, camera, WhatsApp draft and Android share sheet
+- Optional Accessibility Service for reading visible text, tapping labelled controls, entering text in the focused field, scrolling and Back navigation
+- Device time/battery status, media volume control and shortcuts to supported Android settings pages
+- Reminders scheduled through Android alarms, saved for reboot recovery, with notification permission controls
+- Undo for the last supported media-volume change or scheduled reminder
+- GitHub Actions build that downloads the Node runtime, builds FreeLLMAPI, embeds its dashboard/server assets, compiles the APK, and uploads a debug APK artifact
 
-## FreeLLMAPI setup
+## Standalone runtime
 
-This app calls `/v1/chat/completions` on a FreeLLMAPI-compatible server. It does **not** bundle a server or automatically create a public endpoint. Enter the base URL for a FreeLLMAPI instance you control or are authorized to use, plus any required API key and a supported model/routing name.
+The intended build starts FreeLLMAPI inside the app process. No Termux, shell, Docker, manually started server or separately installed backend is required. The build workflow pins the FreeLLMAPI source revision and downloads a Node.js 24 mobile runtime from the community-maintained fogtape/nodejs-mobile release line. That mobile runtime is a prerelease packaging line, so the embedded server must be validated on-device before treating a build as production-ready.
 
-Examples:
-- Base URL `https://your-host.example` → request path `/v1/chat/completions`
-- Base URL ending in `/v1` → request path `/chat/completions`
+FreeLLMAPI remains responsible for its provider catalog, encrypted provider-key database, model routing, rate tracking and failover. Add provider keys from Jarvis Settings → Manage FreeLLMAPI providers. Free tiers still require provider credentials where the provider requires them, and their quotas and terms continue to apply.
 
-Provider quotas, availability, authentication, and terms still apply. Never paste secrets into public issues or commit them to this repository.
+The optional fallback-route format is one route per line:
 
-## Android actions and permissions
+    name|https://provider.example/v1|model-id|api-key
 
-Actions run through normal Android intents and package-manager APIs. Android may show a chooser, deny an operation, or lack a matching app. This MVP does not execute shell commands, use root, or control Miss Minutes. Optional cross-app interactions are available through a dedicated Accessibility Service for tapping visible text, entering text into the focused field, scrolling, and Back navigation. The user must explicitly enable this service in Android Settings; some apps and protected screens may still block interaction.
+Only HTTPS direct-provider URLs are accepted. The bundled local FreeLLMAPI endpoint is loopback-only.
 
-## Build
+## Android permissions and limitations
 
-Open in Android Studio with JDK 17, or use **Actions → Build Android APK** in GitHub. The workflow uploads `app-debug.apk` as an artifact. A successful source commit is not proof that the APK built; check the latest Actions run for the actual build result.
+- The Accessibility Service is opt-in. Android and individual apps can restrict protected screens, secure UI, or controls without readable labels.
+- Voice input currently uses Android's speech-recognition intent; it is not yet the same bidirectional low-latency Gemini Live audio session used by the desktop app.
+- The animated orb is a native HUD treatment, not yet the desktop app's full 3D human head, viseme lip-sync and facial acting renderer.
+- Screen capture, webcam vision, local-file processing, proactive background monitoring, wake-word detection, full action journaling/undo, audio-device selection, and a general plugin system still need Android-native implementations.
+- Desktop-only window/taskbar controls have no direct Android equivalent; app launching and Accessibility actions are the Android replacements.
+- Android may suspend or terminate background processes. The embedded server starts again with the app process; this is not a guarantee of an always-on background daemon.
+
+## Build and APK
+
+Use Actions → Build Jarvis Android APK in GitHub. The workflow builds an arm64 APK and uploads it as the Jarvis-Android-debug artifact. A source commit or an empty CI-status response is not proof of a successful build; check that workflow run and its artifact before installing.
+
+The Node runtime and FreeLLMAPI assets are staged by CI and are not committed as large generated binaries. A plain local Android Studio build without those staged assets will not include the embedded router.
 
 ## Privacy
 
-Conversation history and settings are stored in app-private preferences. Messages are sent to the configured model endpoint when you chat. Review that server/provider's privacy and retention policies before using sensitive data.
+Chat prompts go to the configured local FreeLLMAPI router, which then sends requests to whichever provider keys you configure. Review those providers' privacy and retention terms before sending sensitive information. API credentials are encrypted at rest with Android Keystore; chat history and memory are kept in app-private preferences. The embedded dashboard is bound to loopback and is not intended to be exposed to the LAN or Internet.
 
 ## Attribution
 
-Independent Android implementation. Not affiliated with the original Mark-LV project. No upstream source or assets are bundled.
+- FreeLLMAPI: MIT-licensed upstream project, bundled at build time from a pinned source revision.
+- Node.js mobile runtime: Node.js and mobile runtime components retain their respective upstream/community licenses; review their notices before redistribution.
+- Mark-LV: feature inspiration only. No desktop source code or upstream assets are bundled in this repository.
+
+This is a work in progress. Feature parity is being approached through Android-native equivalents; exact desktop 1:1 parity is not technically possible for desktop-only features.
