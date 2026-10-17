@@ -72,16 +72,19 @@ class MarkViewModel : ViewModel() {
     private val executor = Executors.newSingleThreadExecutor()
     var messages by mutableStateOf(listOf<ChatMessage>()); private set
     var busy by mutableStateOf(false); private set
-    var error by mutableStateOf<String?>(null); private set\n    var memorySummary by mutableStateOf("No saved memories"); private set
+    var error by mutableStateOf<String?>(null); private set
+    var memorySummary by mutableStateOf("No saved memories"); private set
     var apiBase by mutableStateOf("http://127.0.0.1:3001")
     var apiKey by mutableStateOf("")
     var model by mutableStateOf("auto")
     var fallbackProviders by mutableStateOf("")
     init {
         apiBase = prefs.getString("base", apiBase) ?: apiBase
-        val encryptedKey = prefs.getString("key_enc", null)\n        apiKey = if (encryptedKey != null) SecretStore.decrypt(encryptedKey) else (prefs.getString("key", "") ?: "")
+        val encryptedKey = prefs.getString("key_enc", null)
+        apiKey = if (encryptedKey != null) SecretStore.decrypt(encryptedKey) else (prefs.getString("key", "") ?: "")
         model = prefs.getString("model", "auto") ?: "auto"
-        val encryptedRoutes = prefs.getString("fallback_providers_enc", null)\n        fallbackProviders = if (encryptedRoutes != null) SecretStore.decrypt(encryptedRoutes) else (prefs.getString("fallback_providers", "") ?: "")
+        val encryptedRoutes = prefs.getString("fallback_providers_enc", null)
+        fallbackProviders = if (encryptedRoutes != null) SecretStore.decrypt(encryptedRoutes) else (prefs.getString("fallback_providers", "") ?: "")
         runCatching {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
@@ -101,8 +104,8 @@ class MarkViewModel : ViewModel() {
     fun send(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty() || busy) return
-        if (apiBase.isBlank() || apiBase.contains("your-freellmapi-host.example")) {
-            error = "Open Settings and enter your FreeLLMAPI server URL first."; return
+        if (apiBase.isBlank() && fallbackProviders.isBlank()) {
+            error = "Configure the bundled FreeLLMAPI router or add a direct HTTPS provider route in Settings."; return
         }
         messages = messages + ChatMessage("user", prompt); busy = true; error = null; persist()
         executor.execute {
@@ -175,7 +178,12 @@ class MarkViewModel : ViewModel() {
      * Fallback rows: name|baseUrl|model|apiKey
      */
     private fun requestApi(body: JSONObject): JSONObject {
-        val providers = mutableListOf<ProviderConfig>()\n        if (apiBase.isNotBlank() && !apiBase.contains("your-freellmapi-host.example")) providers.add(ProviderConfig("primary", apiBase.trim(), model.trim().ifBlank { "auto" }, apiKey.trim()))
+        val providers = mutableListOf<ProviderConfig>()
+        val primaryBase = apiBase.trim()
+        val isBundledLocal = primaryBase == "http://127.0.0.1:3001" || primaryBase == "http://localhost:3001"
+        if (primaryBase.isNotBlank() && (!isBundledLocal || EmbeddedFreeLLMRuntime.hasBundledRuntime(App.instance))) {
+            providers.add(ProviderConfig("primary", primaryBase, model.trim().ifBlank { "auto" }, apiKey.trim()))
+        }
         fallbackProviders.lineSequence().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }.forEach { line ->
             val parts = line.split("|", limit = 4)
             if (parts.size == 4 && parts[1].startsWith("https://") && parts[2].isNotBlank()) {
@@ -281,7 +289,7 @@ class MarkViewModel : ViewModel() {
                 val found = (0 until memories.length()).map { memories.getJSONObject(it) }
                     .filter { it.optString("fact").contains(q, true) || q.split(Regex("\\s+")).any { token -> token.length > 2 && it.optString("fact").contains(token, true) } }
                     .takeLast(12).map { it.optString("fact") }
-                if (found.isEmpty()) "No matching local memories found." else found.joinToString("\\n")
+                if (found.isEmpty()) "No matching local memories found." else found.joinToString("\n")
             }
             "create_reminder" -> {
                 val text = args.optString("text").trim()
@@ -496,7 +504,8 @@ private fun JarvisOrb(active: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     var input by remember { mutableStateOf("") }
-    var settings by remember { mutableStateOf(false) }\n    var clearMemoryConfirm by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
+    var clearMemoryConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val speechPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
