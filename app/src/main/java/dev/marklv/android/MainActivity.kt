@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
@@ -568,6 +569,16 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     var clearMemoryConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val name = uri.lastPathSegment ?: "document"
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText().take(50000) }
+                    ?: throw IllegalStateException("Could not read this file.")
+                input = (input + "\\n\\n[Attached text file: $name]\\n" + content).trim()
+            }.onFailure { vm.error = "Could not attach file: ${it.message}" }
+        }
+    }
     val speechPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
@@ -589,6 +600,7 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
         topBar = { TopAppBar(title = { Column { Text("JARVIS", fontWeight = FontWeight.Black); Text(if (vm.busy) "WORKING…" else "PERSONAL AI • ANDROID", style = MaterialTheme.typography.labelSmall, color = Color(0xFF65D8D0)) } }, actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.Settings, "Settings") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF151619))) },
         bottomBar = { Row(Modifier.fillMaxWidth().background(Color(0xFF151619)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { speechPermission.launch(Manifest.permission.RECORD_AUDIO) }) { Icon(Icons.Default.Mic, "Speak", tint = Color(0xFF65D8D0)) }
+            IconButton(onClick = { filePicker.launch(arrayOf("text/*", "application/json", "application/xml")) }) { Icon(Icons.Default.AttachFile, "Attach text file", tint = Color(0xFF65D8D0)) }
             Box(Modifier.weight(1f).background(Color(0xFF25272C), RoundedCornerShape(22.dp)).padding(14.dp)) {
                 if (input.isEmpty()) Text("Ask Jarvis to do something…", color = Color.LightGray)
                 BasicTextField(input, { input = it }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White), maxLines = 5)
