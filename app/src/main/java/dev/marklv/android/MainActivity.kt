@@ -443,7 +443,7 @@ class MarkViewModel : ViewModel() {
                 if (number.isBlank() || number.length > 40) "Phone number was invalid."
                 else {
                     val safeNumber = number.filter { it.isDigit() || it in "+*#()," }
-                    ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(safeNumber))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", safeNumber, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     "Opened the dialer with the number filled in. No call was placed."
                 }
             }
