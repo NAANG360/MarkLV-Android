@@ -30,6 +30,13 @@ class JarvisNotificationListener : NotificationListenerService() {
     }
 
     companion object {
+        fun clear(context: android.content.Context) {
+            context.getSharedPreferences("mark", MODE_PRIVATE).edit()
+                .remove("notification_history_enc")
+                .remove("notification_history")
+                .apply()
+        }
+
         fun recent(context: android.content.Context): String {
             val prefs = context.getSharedPreferences("mark", MODE_PRIVATE)
             val saved = SecretStore.decrypt(prefs.getString("notification_history_enc", "") ?: "")
