@@ -25,6 +25,23 @@ class JarvisAccessibilityService : AccessibilityService() {
         return false
     }
 
+    fun readVisibleScreen(): String {
+        val root = rootInActiveWindow ?: return "No active app window is available."
+        val lines = mutableListOf<String>()
+        fun visit(node: AccessibilityNodeInfo) {
+            if (lines.size >= 160) return
+            if (node.isVisibleToUser) {
+                val label = node.text?.toString()?.trim().orEmpty()
+                val description = node.contentDescription?.toString()?.trim().orEmpty()
+                val value = if (label.isNotBlank()) label else description
+                if (value.isNotBlank() && value !in lines) lines.add(value)
+                for (i in 0 until node.childCount) node.getChild(i)?.let { visit(it) }
+            }
+        }
+        visit(root)
+        return if (lines.isEmpty()) "No readable text is exposed by the active app." else lines.joinToString("\\n")
+    }
+
     fun enterText(text: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
