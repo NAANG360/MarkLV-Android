@@ -79,6 +79,7 @@ class MarkViewModel : ViewModel() {
     var messages by mutableStateOf(listOf<ChatMessage>()); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    @Volatile private var shutdownAfterReply = false
     var memorySummary by mutableStateOf("No saved memories"); private set
     var apiBase by mutableStateOf("http://127.0.0.1:3001")
     var apiKey by mutableStateOf("")
@@ -153,6 +154,9 @@ class MarkViewModel : ViewModel() {
                     .put(tool("dial_phone", "Open the phone dialer with a number prefilled. Does not place the call.", JSONObject().put("type","object").put("properties", JSONObject().put("number", JSONObject().put("type","string"))).put("required", JSONArray().put("number"))))
                     .put(tool("open_contact", "Open Android Contacts search for a person by name.", JSONObject().put("type","object").put("properties", JSONObject().put("name", JSONObject().put("type","string"))).put("required", JSONArray().put("name"))))
                     .put(tool("create_calendar_event", "Open Android's calendar event form with a title and time prefilled; the user reviews and saves it.", JSONObject().put("type","object").put("properties", JSONObject().put("title", JSONObject().put("type","string")).put("description", JSONObject().put("type","string")).put("minutes_from_now", JSONObject().put("type","integer").put("minimum",0).put("maximum",525600)).put("duration_minutes", JSONObject().put("type","integer").put("minimum",1).put("maximum",1440))).put("required", JSONArray().put("title").put("minutes_from_now").put("duration_minutes"))))
+                    .put(tool("forget_memory", "Forget locally stored memories matching a specific user-requested phrase.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                    .put(tool("clear_memory", "Delete all saved long-term Jarvis memories when the user explicitly requests this.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("stop_jarvis", "Close Jarvis and stop its app process when the user explicitly asks Jarvis to shut down. Does not uninstall the app.", JSONObject().put("type","object").put("properties", JSONObject())))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -168,9 +172,20 @@ class MarkViewModel : ViewModel() {
                         val call = calls.getJSONObject(i)
                         val fn = call.getJSONObject("function")
                         val args = JSONObject(fn.optString("arguments", "{}"))
-                        val result = executeAction(fn.optString("name"), args)
+                        val result = if (shutdownAfterReply && fn.optString("name") != "stop_jarvis") "Skipped because Jarvis is shutting down." else executeAction(fn.optString("name"), args)
                         results.add(result)
                         conversation.put(JSONObject().put("role","tool").put("tool_call_id",call.optString("id")).put("content",result))
+                    }
+                    if (shutdownAfterReply) {
+                        val answer = "Jarvis is shutting down now. You can reopen it later; Android does not allow silent self-uninstallation."
+                        App.main.post {
+                            releaseImagePayloads()
+                            messages = messages + ChatMessage("model", answer)
+                            busy = false
+                            persist()
+                            App.main.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 1200)
+                        }
+                        return@execute
                     }
                     request.put("messages", conversation)
                     request.remove("tools")
@@ -458,6 +473,31 @@ class MarkViewModel : ViewModel() {
                     else { ctx.startActivity(intent); "Opened Contacts search for $name." }
                 }
             }
+            "forget_memory" -> {
+                val query = args.optString("query").trim()
+                if (query.isBlank()) "Please specify what memory to forget."
+                else {
+                    val old = JSONArray(prefs.getString("memories", "[]"))
+                    val kept = JSONArray()
+                    var removed = 0
+                    for (i in 0 until old.length()) {
+                        val item = old.optJSONObject(i) ?: continue
+                        if (item.optString("fact").contains(query, true)) removed++ else kept.put(item)
+                    }
+                    prefs.edit().putString("memories", kept.toString()).apply()
+                    App.main.post { refreshMemorySummary() }
+                    "Forgot $removed matching memory item(s)."
+                }
+            }
+            "clear_memory" -> {
+                prefs.edit().remove("memories").apply()
+                App.main.post { refreshMemorySummary() }
+                "Cleared Jarvis's saved long-term memory."
+            }
+            "stop_jarvis" -> {
+                shutdownAfterReply = true
+                "Jarvis is shutting down. Android does not permit silent self-uninstallation; this action only closes the app process."
+            }
             "create_calendar_event" -> {
                 val title = args.optString("title").trim()
                 val minutes = args.optInt("minutes_from_now", -1)
@@ -529,7 +569,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
