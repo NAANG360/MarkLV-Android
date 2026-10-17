@@ -121,6 +121,9 @@ class MarkViewModel : ViewModel() {
                     .put(tool("read_screen", "Read visible text exposed by the currently active app. Requires Jarvis Accessibility permission.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("open_setting", "Open a supported Android settings screen such as Wi-Fi, Bluetooth, sound, display, or app settings.", JSONObject().put("type","object").put("properties", JSONObject().put("setting", JSONObject().put("type","string"))).put("required", JSONArray().put("setting"))))
                     .put(tool("set_media_volume", "Set media volume to a percentage from 0 to 100.", JSONObject().put("type","object").put("properties", JSONObject().put("percent", JSONObject().put("type","integer").put("minimum",0).put("maximum",100))).put("required", JSONArray().put("percent"))))
+                    .put(tool("play_video", "Search YouTube for a video and open the results in the YouTube app or browser.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                    .put(tool("weather_search", "Open a weather search for a location.", JSONObject().put("type","object").put("properties", JSONObject().put("location", JSONObject().put("type","string"))).put("required", JSONArray().put("location"))))
+                    .put(tool("draft_whatsapp", "Open WhatsApp with a prefilled message draft. The user must select a recipient and send it themselves.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -343,6 +346,34 @@ class MarkViewModel : ViewModel() {
                     "Set media volume to approximately $percent%."
                 }
             }
+            "play_video" -> {
+                val q = args.optString("query").trim()
+                if (q.isBlank()) "Video query was empty."
+                else {
+                    val uri = Uri.parse("https://www.youtube.com/results?search_query=" + URLEncoder.encode(q, "UTF-8"))
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "Opened YouTube results for: $q"
+                }
+            }
+            "weather_search" -> {
+                val location = args.optString("location").trim()
+                if (location.isBlank()) "Weather location was empty."
+                else {
+                    val q = URLEncoder.encode("weather in $location", "UTF-8")
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=$q")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "Opened weather search for $location."
+                }
+            }
+            "draft_whatsapp" -> {
+                val text = args.optString("text").trim()
+                if (text.isBlank()) "Message draft was empty."
+                else {
+                    val uri = Uri.parse("https://wa.me/?text=" + URLEncoder.encode(text, "UTF-8"))
+                    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) "No app could open the WhatsApp message draft."
+                    else { ctx.startActivity(intent); "Opened WhatsApp message draft. No recipient was selected and nothing was sent automatically." }
+                }
+            }
             "open_app" -> {
                 val wanted = args.optString("app_name").trim()
                 if (wanted.isBlank()) return "App name was empty."
@@ -368,7 +399,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
