@@ -124,6 +124,7 @@ class MarkViewModel : ViewModel() {
                     .put(tool("play_video", "Search YouTube for a video and open the results in the YouTube app or browser.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
                     .put(tool("weather_search", "Open a weather search for a location.", JSONObject().put("type","object").put("properties", JSONObject().put("location", JSONObject().put("type","string"))).put("required", JSONArray().put("location"))))
                     .put(tool("draft_whatsapp", "Open WhatsApp with a prefilled message draft. The user must select a recipient and send it themselves.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
+                    .put(tool("undo_last", "Undo Jarvis's last supported reversible action, such as a media-volume change or newly scheduled reminder.", JSONObject().put("type","object").put("properties", JSONObject())))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -280,7 +281,7 @@ class MarkViewModel : ViewModel() {
                     val triggerAt = System.currentTimeMillis() + minutes * 60_000L
                     val reminders = JSONArray(prefs.getString("reminders", "[]"))
                     reminders.put(JSONObject().put("id", id).put("text", text).put("trigger_at", triggerAt))
-                    prefs.edit().putString("reminders", reminders.toString()).apply()
+                    prefs.edit().putString("reminders", reminders.toString()).putString("undo_type", "reminder").putInt("undo_id", id).apply()
                     ReminderReceiver.schedule(ctx, id, text, triggerAt)
                     "Reminder scheduled for $minutes minute(s) from now. It is saved for reboot recovery; notification permission may be needed to display it."
                 }
@@ -342,7 +343,9 @@ class MarkViewModel : ViewModel() {
                 else {
                     val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                     val max = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val old = audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
                     val value = (max * percent / 100.0).toInt()
+                    prefs.edit().putString("undo_type", "volume").putInt("undo_volume", old).apply()
                     audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value, 0)
                     "Set media volume to approximately $percent%."
                 }
@@ -375,6 +378,35 @@ class MarkViewModel : ViewModel() {
                     else { ctx.startActivity(intent); "Opened WhatsApp message draft. No recipient was selected and nothing was sent automatically." }
                 }
             }
+            "undo_last" -> {
+                when (prefs.getString("undo_type", "")) {
+                    "volume" -> {
+                        val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, prefs.getInt("undo_volume", audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)), 0)
+                        prefs.edit().remove("undo_type").apply()
+                        "Restored the previous media volume."
+                    }
+                    "reminder" -> {
+                        val id = prefs.getInt("undo_id", -1)
+                        if (id < 0) "No reminder undo record was found."
+                        else {
+                            val alarm = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                            val intent = Intent(ctx, ReminderReceiver::class.java)
+                            val pending = PendingIntent.getBroadcast(ctx, id, intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+                            if (pending != null) { alarm.cancel(pending); pending.cancel() }
+                            val saved = JSONArray(prefs.getString("reminders", "[]"))
+                            val updated = JSONArray()
+                            for (i in 0 until saved.length()) {
+                                val item = saved.optJSONObject(i) ?: continue
+                                if (item.optInt("id") != id) updated.put(item)
+                            }
+                            prefs.edit().putString("reminders", updated.toString()).remove("undo_type").remove("undo_id").apply()
+                            "Cancelled the last scheduled reminder."
+                        }
+                    }
+                    else -> "There is no supported reversible action to undo yet."
+                }
+            }
             "open_app" -> {
                 val wanted = args.optString("app_name").trim()
                 if (wanted.isBlank()) return "App name was empty."
@@ -400,7 +432,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
