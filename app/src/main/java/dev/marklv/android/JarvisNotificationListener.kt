@@ -16,7 +16,7 @@ class JarvisNotificationListener : NotificationListenerService() {
             ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         if (title.isBlank() && text.isBlank()) return
         val prefs = getSharedPreferences("mark", MODE_PRIVATE)
-        val items = runCatching { JSONArray(prefs.getString("notification_history", "[]")) }.getOrDefault(JSONArray())
+        val previous = SecretStore.decrypt(prefs.getString("notification_history_enc", "") ?: "")\n        val items = runCatching { JSONArray(previous.ifBlank { "[]" }) }.getOrDefault(JSONArray())
         items.put(JSONObject()
             .put("package", sbn.packageName)
             .put("title", title.take(300))
@@ -25,13 +25,13 @@ class JarvisNotificationListener : NotificationListenerService() {
         val bounded = JSONArray()
         val start = maxOf(0, items.length() - 50)
         for (i in start until items.length()) bounded.put(items.getJSONObject(i))
-        prefs.edit().putString("notification_history", bounded.toString()).apply()
+        prefs.edit().putString("notification_history_enc", SecretStore.encrypt(bounded.toString())).remove("notification_history").apply()
     }
 
     companion object {
         fun recent(context: android.content.Context): String {
             val prefs = context.getSharedPreferences("mark", MODE_PRIVATE)
-            val items = runCatching { JSONArray(prefs.getString("notification_history", "[]")) }.getOrDefault(JSONArray())
+            val saved = SecretStore.decrypt(prefs.getString("notification_history_enc", "") ?: "")\n            val items = runCatching { JSONArray(saved.ifBlank { "[]" }) }.getOrDefault(JSONArray())
             if (items.length() == 0) return "No notification history is available. The user may need to enable Jarvis Notification Access in Android Settings."
             val start = maxOf(0, items.length() - 15)
             return (start until items.length()).map { i ->
