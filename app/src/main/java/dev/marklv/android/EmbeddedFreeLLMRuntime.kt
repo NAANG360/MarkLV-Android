@@ -26,7 +26,7 @@ object EmbeddedFreeLLMRuntime {
 
     private external fun startNodeWithArguments(arguments: Array<String>, environment: Array<String>): Int
 
-    fun start(context: Context) {
+    fun hasBundledRuntime(context: Context): Boolean = runCatching { context.assets.list(ASSET_ROOT)?.contains("server.mjs") == true }.getOrDefault(false)\n\n    fun start(context: Context) {
         synchronized(this) {
             if (started) return
             val root = File(context.filesDir, ASSET_ROOT)
