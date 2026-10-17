@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -165,10 +166,15 @@ class MarkViewModel : ViewModel() {
                 }
             }
             "click_text" -> {
-                val service = JarvisAccessibilityService.active
-                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
-                else if (service.clickVisibleText(args.optString("text"))) "Tapped visible text: ${args.optString("text")}"
-                else "Couldn't find a tappable visible element matching that text."
+                val label = args.optString("text").trim()
+                val risky = listOf("delete", "remove", "purchase", "buy now", "transfer", "pay now", "send", "submit", "confirm", "erase", "uninstall", "factory reset", "publish")
+                if (risky.any { label.contains(it, true) }) "Safety check: tapping '$label' may have an irreversible effect. Ask the user for explicit confirmation before trying again."
+                else {
+                    val service = JarvisAccessibilityService.active
+                    if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                    else if (service.clickVisibleText(label)) "Tapped visible text: $label"
+                    else "Couldn't find a tappable visible element matching that text."
+                }
             }
             "type_text" -> {
                 val service = JarvisAccessibilityService.active
@@ -295,6 +301,9 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             Text("Model / routing name")
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
             Text("Requests use the OpenAI-compatible /v1/chat/completions API. Credentials stay in app-private preferences.", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
+                Text("Enable Jarvis app interaction in Android Settings")
+            }
         } },
         confirmButton = { TextButton(onClick = { vm.save(); settings = false }) { Text("Save") } },
         dismissButton = { TextButton(onClick = { vm.clear() }) { Text("Clear history") } }
