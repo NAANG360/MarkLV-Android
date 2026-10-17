@@ -276,12 +276,13 @@ class MarkViewModel : ViewModel() {
                 val minutes = args.optInt("minutes", 0)
                 if (text.isBlank() || minutes !in 1..43200) "Reminder needs text and a delay between 1 and 43200 minutes."
                 else {
-                    val alarm = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                     val id = (System.currentTimeMillis() and 0x7fffffff).toInt()
-                    val intent = Intent(ctx, ReminderReceiver::class.java).putExtra("text", text).putExtra("id", id)
-                    val pending = PendingIntent.getBroadcast(ctx, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                    alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + minutes * 60_000L, pending)
-                    "Reminder scheduled for $minutes minute(s) from now. Android notification permission may be needed to display it."
+                    val triggerAt = System.currentTimeMillis() + minutes * 60_000L
+                    val reminders = JSONArray(prefs.getString("reminders", "[]"))
+                    reminders.put(JSONObject().put("id", id).put("text", text).put("trigger_at", triggerAt))
+                    prefs.edit().putString("reminders", reminders.toString()).apply()
+                    ReminderReceiver.schedule(ctx, id, text, triggerAt)
+                    "Reminder scheduled for $minutes minute(s) from now. It is saved for reboot recovery; notification permission may be needed to display it."
                 }
             }
             "device_status" -> {
