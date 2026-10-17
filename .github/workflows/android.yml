@@ -67,6 +67,8 @@ jobs:
           mkdir -p "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client"
           npx esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --external:sharp --outfile="${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/server.mjs" --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
           cp -a client/dist "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client/dist"
+          cp LICENSE "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/FREELLMAPI_LICENSE.txt"
+          if [ -f /tmp/nodejs-mobile/LICENSE ]; then cp /tmp/nodejs-mobile/LICENSE "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/NODE_RUNTIME_LICENSE.txt"; fi
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
