@@ -24,6 +24,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -80,6 +82,7 @@ class MarkViewModel : ViewModel() {
     var fallbackProviders by mutableStateOf("")
     init {
         apiBase = prefs.getString("base", apiBase) ?: apiBase
+        if (apiBase.contains("your-freellmapi-host.example")) apiBase = "http://127.0.0.1:3001"
         val encryptedKey = prefs.getString("key_enc", null)
         apiKey = if (encryptedKey != null) SecretStore.decrypt(encryptedKey) else (prefs.getString("key", "") ?: "")
         model = prefs.getString("model", "auto") ?: "auto"
@@ -89,6 +92,8 @@ class MarkViewModel : ViewModel() {
             val a = JSONArray(prefs.getString("history", "[]"))
             messages = (0 until a.length()).map { val o = a.getJSONObject(it); ChatMessage(o.getString("role"), o.getString("text")) }
         }
+        if ((encryptedKey == null && apiKey.isNotBlank()) || (encryptedRoutes == null && fallbackProviders.isNotBlank())) save()
+        refreshMemorySummary()
     }
     fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key_enc", SecretStore.encrypt(apiKey.trim())).putString("model", model.trim()).putString("fallback_providers_enc", SecretStore.encrypt(fallbackProviders.trim())).remove("key").remove("fallback_providers").apply() }
     fun clear() { messages = emptyList(); persist() }
@@ -572,7 +577,7 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     if (settings) AlertDialog(
         onDismissRequest = { settings = false },
         title = { Text("Jarvis settings") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("FreeLLMAPI base URL (bundled local router by default)")
             OutlinedTextField(vm.apiBase, { vm.apiBase = it }, singleLine = true, placeholder = { Text("http://127.0.0.1:3001") })
             Text("API key (external FreeLLMAPI only; bundled router uses its private local key)")
