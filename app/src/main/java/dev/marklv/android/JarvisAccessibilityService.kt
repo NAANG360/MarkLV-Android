@@ -1,10 +1,6 @@
 package dev.marklv.android
 
 import android.accessibilityservice.AccessibilityService
-import android.graphics.Bitmap
-import android.os.Build
-import android.view.Display
-import androidx.core.content.ContextCompat
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Bundle
@@ -60,29 +56,6 @@ class JarvisAccessibilityService : AccessibilityService() {
         collectScrollable(root, nodes)
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         return nodes.firstOrNull { it.isVisibleToUser && it.isScrollable }?.performAction(action) == true
-    }
-
-    fun captureScreen(callback: (Bitmap?) -> Unit) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            callback(null)
-            return
-        }
-        runCatching {
-            takeScreenshot(Display.DEFAULT_DISPLAY, ContextCompat.getMainExecutor(this), object : TakeScreenshotCallback {
-                override fun onSuccess(screenshot: ScreenshotResult) {
-                    val bitmap = runCatching {
-                        Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
-                            ?.copy(Bitmap.Config.ARGB_8888, false)
-                    }.getOrNull()
-                    screenshot.hardwareBuffer.close()
-                    callback(bitmap)
-                }
-
-                override fun onFailure(errorCode: Int) {
-                    callback(null)
-                }
-            })
-        }.onFailure { callback(null) }
     }
 
     fun goBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
