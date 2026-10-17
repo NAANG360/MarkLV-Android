@@ -156,7 +156,7 @@ class MarkViewModel : ViewModel() {
      * Fallback rows: name|baseUrl|model|apiKey
      */
     private fun requestApi(body: JSONObject): JSONObject {
-        val providers = mutableListOf(ProviderConfig("primary", apiBase.trim(), model.trim().ifBlank { "auto" }, apiKey.trim()))
+        val providers = mutableListOf<ProviderConfig>()\n        if (apiBase.isNotBlank() && !apiBase.contains("your-freellmapi-host.example")) providers.add(ProviderConfig("primary", apiBase.trim(), model.trim().ifBlank { "auto" }, apiKey.trim()))
         fallbackProviders.lineSequence().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }.forEach { line ->
             val parts = line.split("|", limit = 4)
             if (parts.size == 4 && parts[1].startsWith("https://") && parts[2].isNotBlank()) {
@@ -444,7 +444,7 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
             Text("Fallback routes (optional; one per line: name|https://provider.example/v1|model-id|API-key)")
             OutlinedTextField(vm.fallbackProviders, { vm.fallbackProviders = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp), minLines = 3, maxLines = 6, placeholder = { Text("groq|https://api.groq.com/openai/v1|your-model|key") })
-            Text("Jarvis tries the primary FreeLLMAPI route first, then these OpenAI-compatible HTTPS routes in order. Each provider has its own key and model. This is the native mobile fallback layer; it does not run the upstream Node server.", style = MaterialTheme.typography.bodySmall)
+            Text("Jarvis tries the FreeLLMAPI route first when configured, then direct OpenAI-compatible HTTPS routes in order. You can use direct routes without hosting a server. Each route has its own key and model. This native mobile router does not run the upstream FreeLLMAPI Node server.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                 Text("Enable Jarvis app interaction in Android Settings")
             }
