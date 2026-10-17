@@ -109,6 +109,9 @@ class MarkViewModel : ViewModel() {
                     .put(tool("open_camera", "Open the device's camera app.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("open_maps", "Open a location or place in an installed maps app.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
                     .put(tool("share_text", "Open Android's share sheet with a draft message. The user chooses whether and where to share.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
+                    .put(tool("read_screen", "Read visible text exposed by the currently active app. Requires Jarvis Accessibility permission.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("open_setting", "Open a supported Android settings screen such as Wi-Fi, Bluetooth, sound, display, or app settings.", JSONObject().put("type","object").put("properties", JSONObject().put("setting", JSONObject().put("type","string"))).put("required", JSONArray().put("setting"))))
+                    .put(tool("set_media_volume", "Set media volume to a percentage from 0 to 100.", JSONObject().put("type","object").put("properties", JSONObject().put("percent", JSONObject().put("type","integer").put("minimum",0).put("maximum",100))).put("required", JSONArray().put("percent"))))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -268,6 +271,39 @@ class MarkViewModel : ViewModel() {
                     "Opened Android's share sheet. Nothing was sent automatically."
                 }
             }
+            "read_screen" -> {
+                val service = JarvisAccessibilityService.active
+                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                else service.readVisibleScreen()
+            }
+            "open_setting" -> {
+                val setting = args.optString("setting").trim().lowercase(Locale.ROOT)
+                val action = when (setting) {
+                    "wifi", "wi-fi", "network" -> Settings.ACTION_WIFI_SETTINGS
+                    "bluetooth" -> Settings.ACTION_BLUETOOTH_SETTINGS
+                    "sound", "audio", "volume" -> Settings.ACTION_SOUND_SETTINGS
+                    "display", "brightness" -> Settings.ACTION_DISPLAY_SETTINGS
+                    "apps", "applications" -> Settings.ACTION_APPLICATION_SETTINGS
+                    "accessibility" -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+                    "date", "time" -> Settings.ACTION_DATE_SETTINGS
+                    "security" -> Settings.ACTION_SECURITY_SETTINGS
+                    "battery" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+                    else -> null
+                }
+                if (action == null) "Unsupported settings screen. Supported: Wi-Fi, Bluetooth, sound, display, apps, accessibility, date/time, security, battery."
+                else { ctx.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "Opened Android $setting settings." }
+            }
+            "set_media_volume" -> {
+                val percent = args.optInt("percent", -1)
+                if (percent !in 0..100) "Volume must be a percentage from 0 to 100."
+                else {
+                    val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                    val max = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val value = (max * percent / 100.0).toInt()
+                    audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value, 0)
+                    "Set media volume to approximately $percent%."
+                }
+            }
             "open_app" -> {
                 val wanted = args.optString("app_name").trim()
                 if (wanted.isBlank()) return "App name was empty."
@@ -293,7 +329,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
