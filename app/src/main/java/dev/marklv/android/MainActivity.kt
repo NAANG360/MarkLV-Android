@@ -585,6 +585,24 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     var clearMemoryConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    var pendingImageData by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    ?: throw IllegalStateException("Could not decode this image.")
+                val maxSide = 1024
+                val scale = minOf(1f, maxSide.toFloat() / maxOf(bitmap.width, bitmap.height))
+                val scaled = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true) else bitmap
+                val bytes = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 82, bytes)
+                if (scaled !== bitmap) scaled.recycle()
+                bitmap.recycle()
+                pendingImageData = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+                if (input.isBlank()) input = "Please analyze the attached image."
+            }.onFailure { vm.reportError("Could not attach image: ${it.message}") }
+        }
+    }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -617,11 +635,12 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
         bottomBar = { Row(Modifier.fillMaxWidth().background(Color(0xFF151619)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { speechPermission.launch(Manifest.permission.RECORD_AUDIO) }) { Icon(Icons.Default.Mic, "Speak", tint = Color(0xFF65D8D0)) }
             IconButton(onClick = { filePicker.launch(arrayOf("text/*", "application/json", "application/xml")) }) { Icon(Icons.Default.AttachFile, "Attach text file", tint = Color(0xFF65D8D0)) }
+            IconButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) { Icon(Icons.Default.Image, "Attach image", tint = Color(0xFF65D8D0)) }
             Box(Modifier.weight(1f).background(Color(0xFF25272C), RoundedCornerShape(22.dp)).padding(14.dp)) {
                 if (input.isEmpty()) Text("Ask Jarvis to do something…", color = Color.LightGray)
                 BasicTextField(input, { input = it }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White), maxLines = 5)
             }
-            IconButton(enabled = !vm.busy, onClick = { val t = input; input = ""; vm.send(t) }) { Icon(Icons.Default.Send, "Send", tint = Color(0xFFFF9E45)) }
+            IconButton(enabled = !vm.busy, onClick = { val t = input; val image = pendingImageData; input = ""; pendingImageData = null; vm.send(t, image) }) { Icon(Icons.Default.Send, "Send", tint = Color(0xFFFF9E45)) }
         } }, containerColor = Color(0xFF101114)
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -640,7 +659,7 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.role == "user") Arrangement.End else Arrangement.Start) {
                         Column(Modifier.widthIn(max = 330.dp).background(if (m.role == "user") Color(0xFF30343B) else Color(0xFF1D2024), RoundedCornerShape(16.dp)).padding(12.dp)) {
                             Text(if (m.role == "user") "YOU" else "JARVIS", color = if (m.role == "user") Color.LightGray else Color(0xFFFF9E45), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(4.dp)); Text(m.text, color = Color.White)
+                            Spacer(Modifier.height(4.dp)); if (m.hasImage || m.imageData != null) Text("▧ Image attached", color = Color(0xFF65D8D0), style = MaterialTheme.typography.labelSmall); Text(m.text, color = Color.White)
                             if (m.role == "model") TextButton(onClick = { speak(m.text) }) { Icon(Icons.Default.VolumeUp, null); Spacer(Modifier.width(5.dp)); Text("Speak reply") }
                         }
                     }
