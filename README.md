@@ -58,3 +58,6 @@ Chat prompts go to the configured local FreeLLMAPI router, which then sends requ
 - Mark-LV: feature inspiration only. No desktop source code or upstream assets are bundled in this repository.
 
 This is a work in progress. Feature parity is being approached through Android-native equivalents; exact desktop 1:1 parity is not technically possible for desktop-only features.
+
+
+<!-- Temporary CI validation marker for Jarvis 0.4.0; do not merge. -->
