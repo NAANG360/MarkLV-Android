@@ -91,6 +91,10 @@ class MarkViewModel : ViewModel() {
                     .put(tool("open_app", "Open an installed Android app by its visible name.", JSONObject().put("type","object").put("properties", JSONObject().put("app_name", JSONObject().put("type","string").put("description","Visible app name, e.g. YouTube"))).put("required", JSONArray().put("app_name"))))
                     .put(tool("open_url", "Open a web URL or app deep link with Android's normal app chooser/resolver.", JSONObject().put("type","object").put("properties", JSONObject().put("url", JSONObject().put("type","string").put("description","https URL or supported app deep link"))).put("required", JSONArray().put("url"))))
                     .put(tool("search_web", "Open a web search for the requested query.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                    .put(tool("click_text", "Tap a visible UI element matching its label in the currently active app. Requires Jarvis Accessibility permission to be enabled by the user.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
+                    .put(tool("type_text", "Enter text into the currently focused editable field in the active app. Requires user-enabled Jarvis Accessibility permission.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
+                    .put(tool("scroll_screen", "Scroll the active app's visible scrollable content.", JSONObject().put("type","object").put("properties", JSONObject().put("forward", JSONObject().put("type","boolean"))).put("required", JSONArray().put("forward"))))
+                    .put(tool("press_back", "Perform Android's normal Back navigation.", JSONObject().put("type","object").put("properties", JSONObject().put("type","object"))))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -160,6 +164,30 @@ class MarkViewModel : ViewModel() {
                     "Opened web search for: $q"
                 }
             }
+            "click_text" -> {
+                val service = JarvisAccessibilityService.active
+                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                else if (service.clickVisibleText(args.optString("text"))) "Tapped visible text: ${args.optString("text")}"
+                else "Couldn't find a tappable visible element matching that text."
+            }
+            "type_text" -> {
+                val service = JarvisAccessibilityService.active
+                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                else if (service.enterText(args.optString("text"))) "Entered text into the focused field."
+                else "No focused editable field was available."
+            }
+            "scroll_screen" -> {
+                val service = JarvisAccessibilityService.active
+                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                else if (service.scroll(args.optBoolean("forward", true))) "Scrolled the active screen."
+                else "No scrollable content was available."
+            }
+            "press_back" -> {
+                val service = JarvisAccessibilityService.active
+                if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
+                else if (service.goBack()) "Pressed Android Back."
+                else "Android Back action was not available."
+            }
             "open_app" -> {
                 val wanted = args.optString("app_name").trim()
                 if (wanted.isBlank()) return "App name was empty."
@@ -185,7 +213,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web. Never claim an action succeeded unless its tool result confirms it. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
