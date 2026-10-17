@@ -2,6 +2,12 @@ package dev.marklv.android
 
 import android.Manifest
 import android.app.Application
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.os.BatteryManager
+import android.os.Build
+import android.provider.Settings
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -96,6 +102,13 @@ class MarkViewModel : ViewModel() {
                     .put(tool("type_text", "Enter text into the currently focused editable field in the active app. Requires user-enabled Jarvis Accessibility permission.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                     .put(tool("scroll_screen", "Scroll the active app's visible scrollable content.", JSONObject().put("type","object").put("properties", JSONObject().put("forward", JSONObject().put("type","boolean"))).put("required", JSONArray().put("forward"))))
                     .put(tool("press_back", "Perform Android's normal Back navigation.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("remember_fact", "Save a useful user-approved preference or fact to Jarvis local memory.", JSONObject().put("type","object").put("properties", JSONObject().put("fact", JSONObject().put("type","string"))).put("required", JSONArray().put("fact"))))
+                    .put(tool("recall_memory", "Search Jarvis's locally stored memories for relevant information.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                    .put(tool("create_reminder", "Schedule an Android notification reminder after a number of minutes.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string")).put("minutes", JSONObject().put("type","integer").put("minimum",1).put("maximum",43200))).put("required", JSONArray().put("text").put("minutes"))))
+                    .put(tool("device_status", "Read basic device status such as battery percentage and current time.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("open_camera", "Open the device's camera app.", JSONObject().put("type","object").put("properties", JSONObject())))
+                    .put(tool("open_maps", "Open a location or place in an installed maps app.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
+                    .put(tool("share_text", "Open Android's share sheet with a draft message. The user chooses whether and where to share.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string"))).put("required", JSONArray().put("text"))))
                 val request = JSONObject().put("model", model.trim().ifBlank { "auto" }).put("messages", conversation)
                     .put("tools", tools).put("tool_choice", "auto").put("temperature", 0.7)
                 val first = requestApi(request)
@@ -194,6 +207,67 @@ class MarkViewModel : ViewModel() {
                 else if (service.goBack()) "Pressed Android Back."
                 else "Android Back action was not available."
             }
+            "remember_fact" -> {
+                val fact = args.optString("fact").trim()
+                if (fact.isBlank()) "Memory was empty."
+                else {
+                    val memories = JSONArray(prefs.getString("memories", "[]"))
+                    memories.put(JSONObject().put("fact", fact).put("saved_at", System.currentTimeMillis()))
+                    while (memories.length() > 500) memories.remove(0)
+                    prefs.edit().putString("memories", memories.toString()).apply()
+                    "Saved to Jarvis local memory."
+                }
+            }
+            "recall_memory" -> {
+                val q = args.optString("query").trim()
+                val memories = JSONArray(prefs.getString("memories", "[]"))
+                val found = (0 until memories.length()).map { memories.getJSONObject(it) }
+                    .filter { it.optString("fact").contains(q, true) || q.split(Regex("\\s+")).any { token -> token.length > 2 && it.optString("fact").contains(token, true) } }
+                    .takeLast(12).map { it.optString("fact") }
+                if (found.isEmpty()) "No matching local memories found." else found.joinToString("\\n")
+            }
+            "create_reminder" -> {
+                val text = args.optString("text").trim()
+                val minutes = args.optInt("minutes", 0)
+                if (text.isBlank() || minutes !in 1..43200) "Reminder needs text and a delay between 1 and 43200 minutes."
+                else {
+                    val alarm = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    val id = (System.currentTimeMillis() and 0x7fffffff).toInt()
+                    val intent = Intent(ctx, ReminderReceiver::class.java).putExtra("text", text).putExtra("id", id)
+                    val pending = PendingIntent.getBroadcast(ctx, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + minutes * 60_000L, pending)
+                    "Reminder scheduled for $minutes minute(s) from now. Android notification permission may be needed to display it."
+                }
+            }
+            "device_status" -> {
+                val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                "Local time: " + java.text.SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss z", Locale.getDefault()).format(java.util.Date()) + "; battery: $battery%; Android " + Build.VERSION.RELEASE + "."
+            }
+            "open_camera" -> {
+                val intent = Intent("android.media.action.IMAGE_CAPTURE").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(ctx.packageManager) == null) "No camera app was found."
+                else { ctx.startActivity(intent); "Opened the camera app." }
+            }
+            "open_maps" -> {
+                val q = args.optString("query").trim()
+                if (q.isBlank()) "Location query was empty."
+                else {
+                    val uri = Uri.parse("geo:0,0?q=" + URLEncoder.encode(q, "UTF-8"))
+                    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(ctx.packageManager) == null) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=" + URLEncoder.encode(q, "UTF-8"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); "Opened Maps search." }
+                    else { ctx.startActivity(intent); "Opened maps for: $q" }
+                }
+            }
+            "share_text" -> {
+                val text = args.optString("text").trim()
+                if (text.isBlank()) "Share text was empty."
+                else {
+                    val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                    ctx.startActivity(Intent.createChooser(intent, "Share with…").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "Opened Android's share sheet. Nothing was sent automatically."
+                }
+            }
             "open_app" -> {
                 val wanted = args.optString("app_name").trim()
                 if (wanted.isBlank()) return "App name was empty."
@@ -219,7 +293,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use cross-app interaction tools only when they clearly match the user request and the user has enabled Accessibility. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
