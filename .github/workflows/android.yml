@@ -48,6 +48,22 @@ jobs:
           cd /tmp/freellmapi
           npm ci --no-audit --no-fund
           npm run build -w client
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("server/src/routes/auth.ts")
+          source = path.read_text()
+          old = "if (!isLoopbackRemote(req) && !setupCodeMatches((req.body ?? {}).setupCode)) {"
+          new = """const embeddedSetupToken = process.env.JARVIS_EMBEDDED_SETUP_TOKEN;
+            const suppliedEmbeddedToken = req.headers['x-jarvis-embedded-setup'];
+            const embeddedSetupAllowed = !!embeddedSetupToken && suppliedEmbeddedToken === embeddedSetupToken;
+            const setupDenied = embeddedSetupToken
+              ? !embeddedSetupAllowed
+              : (!isLoopbackRemote(req) && !setupCodeMatches((req.body ?? {}).setupCode));
+            if (setupDenied) {"""
+          if old not in source:
+              raise SystemExit("FreeLLMAPI auth setup patch target was not found; refusing an unprotected embedded build.")
+          path.write_text(source.replace(old, new, 1))
+          PY
           mkdir -p "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client"
           npx esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --external:sharp --outfile="${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/server.mjs" --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
           cp -a client/dist "${GITHUB_WORKSPACE}/app/src/main/assets/freellmapi/client/dist"
