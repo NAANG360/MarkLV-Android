@@ -72,7 +72,7 @@ class MarkViewModel : ViewModel() {
     private val executor = Executors.newSingleThreadExecutor()
     var messages by mutableStateOf(listOf<ChatMessage>()); private set
     var busy by mutableStateOf(false); private set
-    var error by mutableStateOf<String?>(null); private set
+    var error by mutableStateOf<String?>(null); private set\n    var memorySummary by mutableStateOf("No saved memories"); private set
     var apiBase by mutableStateOf("https://your-freellmapi-host.example")
     var apiKey by mutableStateOf("")
     var model by mutableStateOf("auto")
@@ -89,6 +89,14 @@ class MarkViewModel : ViewModel() {
     }
     fun save() { prefs.edit().putString("base", apiBase.trim()).putString("key_enc", SecretStore.encrypt(apiKey.trim())).putString("model", model.trim()).putString("fallback_providers_enc", SecretStore.encrypt(fallbackProviders.trim())).remove("key").remove("fallback_providers").apply() }
     fun clear() { messages = emptyList(); persist() }
+    fun refreshMemorySummary() {
+        val count = runCatching { JSONArray(prefs.getString("memories", "[]")).length() }.getOrDefault(0)
+        memorySummary = if (count == 0) "No saved memories" else "$count saved fact(s)"
+    }
+    fun clearMemory() {
+        prefs.edit().remove("memories").apply()
+        memorySummary = "No saved memories"
+    }
 
     fun send(text: String) {
         val prompt = text.trim()
@@ -485,7 +493,7 @@ private fun JarvisOrb(active: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     var input by remember { mutableStateOf("") }
-    var settings by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }\n    var clearMemoryConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val speechPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -542,6 +550,13 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             }
         }
     }
+    if (clearMemoryConfirm) AlertDialog(
+        onDismissRequest = { clearMemoryConfirm = false },
+        title = { Text("Clear Jarvis memory?") },
+        text = { Text("This permanently removes saved facts and preferences from this app. Conversation history is not affected.") },
+        confirmButton = { TextButton(onClick = { vm.clearMemory(); clearMemoryConfirm = false }) { Text("Clear memory") } },
+        dismissButton = { TextButton(onClick = { clearMemoryConfirm = false }) { Text("Keep memory") } }
+    )
     if (settings) AlertDialog(
         onDismissRequest = { settings = false },
         title = { Text("Jarvis settings") },
@@ -552,6 +567,8 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Optional") })
             Text("Model / routing name")
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
+            Text("Local memory: ${vm.memorySummary}")
+            TextButton(onClick = { clearMemoryConfirm = true }) { Text("Clear Jarvis memory") }
             Text("Fallback routes (optional; one per line: name|https://provider.example/v1|model-id|API-key)")
             OutlinedTextField(vm.fallbackProviders, { vm.fallbackProviders = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp), minLines = 3, maxLines = 6, placeholder = { Text("groq|https://api.groq.com/openai/v1|your-model|key") })
             Text("Jarvis tries the FreeLLMAPI route first when configured, then direct OpenAI-compatible HTTPS routes in order. You can use direct routes without hosting a server. Each route has its own key and model. This native mobile router does not run the upstream FreeLLMAPI Node server.", style = MaterialTheme.typography.bodySmall)
