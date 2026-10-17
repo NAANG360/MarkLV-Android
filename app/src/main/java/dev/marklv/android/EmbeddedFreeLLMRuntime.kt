@@ -88,7 +88,10 @@ object EmbeddedFreeLLMRuntime {
                 "ENCRYPTION_KEY=$encryptionKey",
                 "FREEAPI_DB_PATH=${File(dataDir, "freeapi.db").absolutePath}",
                 "CLIENT_DIST=${clientDir.absolutePath}",
-                "FREEAPI_INSTALL_METHOD=jarvis-android"
+                "FREELLMAPI_COMMIT_SHA=369c47128edf92d30abb59d7b7c0e46c43e1ce57",
+                "FREELLMAPI_INSTALL_METHOD=jarvis-android",
+                "FREELLMAPI_UPDATE_CHECK=off",
+                "FREEAPI_DESKTOP=1"
             )
             started = true
             Thread({
@@ -164,7 +167,7 @@ object EmbeddedFreeLLMRuntime {
         }
 
         email = "jarvis-${UUID.randomUUID().toString().take(12)}@local.invalid"
-        password = UUID.randomUUID().toString() + UUID.randomUUID().toString()
+        password = UUID.randomUUID().toString().replace("-", "") + "Aa1!"
         val setupSecret = SecretStore.decrypt(prefs.getString("freellmapi_setup_secret_enc", "") ?: "")
         val setup = request("POST", "/api/auth/setup", null, JSONObject().put("email", email).put("password", password), setupToken = setupSecret)
         val token = setup?.optString("token").orEmpty()
