@@ -129,8 +129,8 @@ class MarkViewModel : ViewModel() {
                     val saved = JSONArray(prefs.getString("memories", "[]"))
                     (0 until saved.length()).mapNotNull { saved.optJSONObject(it)?.optString("fact")?.takeIf { fact -> fact.isNotBlank() } }.takeLast(40)
                 }.getOrDefault(emptyList())
-                val profile = if (learnedPreferences.isEmpty()) "No preferences learned yet. Learn stable, non-sensitive preferences from repeated user behavior and explicit statements." else "Learned user preferences and context (use when relevant; newer entries may refine older ones):\\n" + learnedPreferences.joinToString("\\n") { "- $it" }
-                conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT + "\\n\\nPERSONAL LEARNING PROFILE:\\n" + profile))
+                val profile = if (learnedPreferences.isEmpty()) "No preferences learned yet. Learn stable, non-sensitive preferences from repeated user behavior and explicit statements." else "Learned user preferences and context (use when relevant; newer entries may refine older ones):\n" + learnedPreferences.joinToString("\n") { "- $it" }
+                conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT + "\n\nPERSONAL LEARNING PROFILE:\n" + profile))
                 messages.dropLast(1).takeLast(16).forEach { conversation.put(JSONObject().put("role", if (it.role == "model") "assistant" else it.role).put("content", it.text)) }
                 conversation.put(JSONObject().put("role", "user").put("content", messageContent(currentUserMessage)))
                 val tools = JSONArray()
