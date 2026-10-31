@@ -706,6 +706,7 @@ private fun JarvisOrb(active: Boolean, modifier: Modifier = Modifier) {
 fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
     var input by remember { mutableStateOf("") }
     var settings by remember { mutableStateOf(false) }
+    var autonomyEnabled by remember { mutableStateOf(context.getSharedPreferences("mark", Context.MODE_PRIVATE).getBoolean("autonomy_enabled", true)) }
     var clearMemoryConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -845,6 +846,17 @@ fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
             OutlinedTextField(vm.apiKey, { vm.apiKey = it }, singleLine = true, placeholder = { Text("Optional") })
             Text("Model / routing name")
             OutlinedTextField(vm.model, { vm.model = it }, singleLine = true, placeholder = { Text("auto") })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Proactive Jarvis")
+                    Text("Runs a private check-in about every 12 hours, using your learned preferences and recent chats. Can notify you or create a reminder only for a clearly stated commitment.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+                Switch(checked = autonomyEnabled, onCheckedChange = {
+                    autonomyEnabled = it
+                    context.getSharedPreferences("mark", Context.MODE_PRIVATE).edit().putBoolean("autonomy_enabled", it).apply()
+                    if (it) JarvisAutonomy.schedule(context)
+                })
+            }
             Text("Local memory: ${vm.memorySummary}")
             TextButton(onClick = { clearMemoryConfirm = true }) { Text("Clear Jarvis memory") }
             Text("Fallback routes (optional; one per line: name|https://provider.example/v1|model-id|API-key)")
