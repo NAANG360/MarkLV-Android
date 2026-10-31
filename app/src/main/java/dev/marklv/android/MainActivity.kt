@@ -704,11 +704,11 @@ private fun JarvisOrb(active: Boolean, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(speak: (String) -> Unit, vm: MarkViewModel = viewModel()) {
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
     var settings by remember { mutableStateOf(false) }
     var autonomyEnabled by remember { mutableStateOf(context.getSharedPreferences("mark", Context.MODE_PRIVATE).getBoolean("autonomy_enabled", true)) }
     var clearMemoryConfirm by remember { mutableStateOf(false) }
-    val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var pendingImageData by remember { mutableStateOf<String?>(null) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
