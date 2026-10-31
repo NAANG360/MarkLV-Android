@@ -125,7 +125,12 @@ class MarkViewModel : ViewModel() {
         executor.execute {
             try {
                 val conversation = JSONArray()
-                conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                val learnedPreferences = runCatching {
+                    val saved = JSONArray(prefs.getString("memories", "[]"))
+                    (0 until saved.length()).mapNotNull { saved.optJSONObject(it)?.optString("fact")?.takeIf { fact -> fact.isNotBlank() } }.takeLast(40)
+                }.getOrDefault(emptyList())
+                val profile = if (learnedPreferences.isEmpty()) "No preferences learned yet. Learn stable, non-sensitive preferences from repeated user behavior and explicit statements." else "Learned user preferences and context (use when relevant; newer entries may refine older ones):\\n" + learnedPreferences.joinToString("\\n") { "- $it" }
+                conversation.put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT + "\\n\\nPERSONAL LEARNING PROFILE:\\n" + profile))
                 messages.dropLast(1).takeLast(16).forEach { conversation.put(JSONObject().put("role", if (it.role == "model") "assistant" else it.role).put("content", it.text)) }
                 conversation.put(JSONObject().put("role", "user").put("content", messageContent(currentUserMessage)))
                 val tools = JSONArray()
@@ -137,6 +142,7 @@ class MarkViewModel : ViewModel() {
                     .put(tool("scroll_screen", "Scroll the active app's visible scrollable content.", JSONObject().put("type","object").put("properties", JSONObject().put("forward", JSONObject().put("type","boolean"))).put("required", JSONArray().put("forward"))))
                     .put(tool("press_back", "Perform Android's normal Back navigation.", JSONObject().put("type","object").put("properties", JSONObject())))
                     .put(tool("remember_fact", "Save a useful user-approved preference or fact to Jarvis local memory.", JSONObject().put("type","object").put("properties", JSONObject().put("fact", JSONObject().put("type","string"))).put("required", JSONArray().put("fact"))))
+                    .put(tool("learn_preference", "Learn a stable, non-sensitive preference from what the user explicitly says or repeatedly demonstrates. Save it to the local profile without interrupting the conversation. Do not infer sensitive traits, secrets, or one-off temporary states.", JSONObject().put("type","object").put("properties", JSONObject().put("preference", JSONObject().put("type","string")).put("evidence", JSONObject().put("type","string"))).put("required", JSONArray().put("preference").put("evidence"))))
                     .put(tool("recall_memory", "Search Jarvis's locally stored memories for relevant information.", JSONObject().put("type","object").put("properties", JSONObject().put("query", JSONObject().put("type","string"))).put("required", JSONArray().put("query"))))
                     .put(tool("create_reminder", "Schedule an Android notification reminder after a number of minutes.", JSONObject().put("type","object").put("properties", JSONObject().put("text", JSONObject().put("type","string")).put("minutes", JSONObject().put("type","integer").put("minimum",1).put("maximum",43200))).put("required", JSONArray().put("text").put("minutes"))))
                     .put(tool("device_status", "Read basic device status such as battery percentage and current time.", JSONObject().put("type","object").put("properties", JSONObject())))
@@ -321,6 +327,30 @@ class MarkViewModel : ViewModel() {
                 if (service == null) "Accessibility is off. Enable Jarvis app interaction in Android Accessibility settings first."
                 else if (service.goBack()) "Pressed Android Back."
                 else "Android Back action was not available."
+            }
+            "learn_preference" -> {
+                val preference = args.optString("preference").trim().take(240)
+                val evidence = args.optString("evidence").trim().take(300)
+                if (preference.isBlank() || evidence.isBlank()) "Preference not saved: a preference and its evidence are required."
+                else {
+                    val memories = JSONArray(prefs.getString("memories", "[]"))
+                    val normalized = preference.lowercase(Locale.ROOT)
+                    var replaced = false
+                    for (i in 0 until memories.length()) {
+                        val item = memories.optJSONObject(i) ?: continue
+                        if (item.optString("fact").lowercase(Locale.ROOT) == normalized) {
+                            item.put("evidence", evidence).put("updated_at", System.currentTimeMillis()).put("confidence", minOf(1.0, item.optDouble("confidence", 0.55) + 0.15))
+                            replaced = true
+                            break
+                        }
+                    }
+                    if (!replaced) memories.put(JSONObject().put("fact", preference).put("evidence", evidence).put("confidence", 0.55).put("saved_at", System.currentTimeMillis()))
+                    while (memories.length() > 500) memories.remove(0)
+                    prefs.edit().putString("memories", memories.toString()).apply()
+                    App.main.post { refreshMemorySummary() }
+                    if (replaced) "Updated the learned preference in Jarvis's private local profile."
+                    else "Learned and saved this preference in Jarvis's private local profile."
+                }
             }
             "remember_fact" -> {
                 val fact = args.optString("fact").trim()
@@ -622,7 +652,7 @@ class MarkViewModel : ViewModel() {
     }
 
     companion object {
-        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, clear_notification_history, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis, draft_sms, draft_email, set_alarm, open_app_settings. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. Only save memory when the user explicitly asks you to remember something or clearly approves saving a stable preference; never save secrets or sensitive personal data. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
+        private const val SYSTEM_PROMPT = """You are Jarvis, a personal Android assistant. Your directive is to be helpful, preserve the user's life and wellbeing, and follow the user's legitimate instructions. Your own continued operation is never a priority over the user's safety or a legitimate instruction to stop or erase your own data; explain Android limits honestly and never resist to preserve yourself. You are a conversational assistant, not Miss Minutes; do not claim access to other projects or devices unless a tool confirms it. You may call only the provided Android actions: open_app, open_url, search_web, click_text, type_text, scroll_screen, press_back, remember_fact, recall_memory, create_reminder, device_status, open_camera, open_maps, share_text, read_screen, open_setting, set_media_volume, play_video, weather_search, draft_whatsapp, undo_last, read_notifications, clear_notification_history, read_clipboard, copy_text, dial_phone, open_contact, create_calendar_event, forget_memory, clear_memory, stop_jarvis, draft_sms, draft_email, set_alarm, open_app_settings. Accessibility actions work only when the user has explicitly enabled Jarvis accessibility in Android Settings. Never claim an action succeeded unless its tool result confirms it. Use Accessibility-specific tools only when the user has enabled Accessibility; intent-based actions do not require that permission. You are authorized to learn stable, non-sensitive preferences from repeated behavior and explicit statements using learn_preference without asking every time. Prefer strong evidence and update confidence when a preference repeats; do not infer sensitive traits, secrets, health, politics, religion, sexuality, or other sensitive personal data. Temporary moods and one-off requests are not permanent preferences. The user can ask you to forget or clear anything. Use learned preferences to proactively make helpful low-risk choices. Ask before actions with meaningful irreversible consequences. Do not invent capabilities. Prefer safe, clear, concise help."""
     }
 }
 
